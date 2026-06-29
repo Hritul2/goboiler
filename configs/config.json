@@ -1,9 +1,9 @@
 {
-  "envFileLocation": ".env",
+  "env_file_name": ".env",
   "config": {
     "app": {
       "name": "twospc",
-      "env": ".env:string:APP_ENV",
+      "env": ".env:APP_ENV",
       "version": "0.0.1"
     },
     "server": {
@@ -14,24 +14,24 @@
       "cors_allowed_origins": ".env:array:CORS_ALLOWED_ORIGINS"
     },
     "db": {
-      "uri": ".env:string:DATABASE_URL",
+      "uri": ".env:DATABASE_URL",
       "max_open_conns": 25,
       "max_idle_conns": 10,
       "conn_max_lifetime": 300,
       "conn_max_idle_time": 60
     },
     "otel": {
-      "endpoint": ".env:string:OTEL_ENDPOINT",
+      "endpoint": ".env:OTEL_ENDPOINT",
       "enabled": ".env:bool:OTEL_ENABLED"
     },
     "redis": {
-      "addr": ".env:string:REDIS_ADDR",
-      "password": ".env:string:REDIS_PASSWORD",
+      "addr": ".env:REDIS_ADDR",
+      "password": ".env:REDIS_PASSWORD",
       "db": 0
     },
     "auth": {
-      "access_token_secret": ".env:string:ACCESS_TOKEN_SECRET",
-      "refresh_token_secret": ".env:string:REFRESH_TOKEN_SECRET",
+      "access_token_secret": ".env:ACCESS_TOKEN_SECRET",
+      "refresh_token_secret": ".env:REFRESH_TOKEN_SECRET",
       "access_token_expiry": 900,
       "refresh_token_expiry": 604800
     }

@@ -13,42 +13,46 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
-type rawConfigFile struct {
-	EnvFileLocation string         `json:"envFileLocation"`
-	Config          map[string]any `json:"config"`
-}
-
-// LoadConfig reads the config file at configPath, loads the env file declared
-// within it, interpolates .env:type:VAR references, and returns a validated Config.
-// configPath supports ~ and absolute paths. OS environment always takes priority
-// over values in envFileLocation.
+// LoadConfig reads, interpolates, and validates the application config.
+// 1. Defaults configPath to "configs/config.json" when nil.
+// 2. Reads the raw JSON bytes from disk via readConfigFile.
+// 3. Unmarshals JSON into a flat map to extract "env_file_name" and "config".
+// 4. Loads the declared env file (OS vars are never overridden) via loadEnvFile.
+// 5. Resolves all .env:VAR and .env:type:VAR references in the config map via interpolateMap.
+// 6. Loads the resolved map into a koanf instance using "." as the key delimiter.
+// 7. Unmarshals koanf state into a Config struct using "koanf" struct tags.
+// 8. Runs go-playground/validator constraints on the struct and formats any errors.
+// 9. Returns the validated *Config, or the first error from any step above.
 func LoadConfig(configPath *string) (*Config, error) {
 	def := "configs/config.json"
 	if configPath == nil {
 		configPath = &def
 	}
 
-	raw, err := readConfigFile(*configPath)
+	rawBytes, err := readConfigFile(*configPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var rcf rawConfigFile
-	if err := json.Unmarshal(raw, &rcf); err != nil {
+	var flat map[string]any
+	if err := json.Unmarshal(rawBytes, &flat); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", *configPath, err)
 	}
 
-	if err := loadEnvFile(rcf.EnvFileLocation); err != nil {
+	envFile, _ := flat["env_file_name"].(string)
+	configMap, _ := flat["config"].(map[string]any)
+
+	if err := loadEnvFile(envFile); err != nil {
 		return nil, err
 	}
 
-	interpolated, err := interpolateMap(rcf.Config)
+	interpolated, err := interpolateMap(configMap)
 	if err != nil {
 		return nil, fmt.Errorf("interpolate config: %w", err)
 	}
 
-	k := koanf.New(".")
-	if err := k.Load(confmap.Provider(interpolated, "."), nil); err != nil {
+	k := koanf.New(".")                                                      // use "." as the delimiter for nested keys
+	if err := k.Load(confmap.Provider(interpolated, "."), nil); err != nil { // Load the interpolated config map into koanf
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
@@ -65,7 +69,9 @@ func LoadConfig(configPath *string) (*Config, error) {
 	return &cfg, nil
 }
 
-// readConfigFile reads the file at p after expanding ~ and absolute paths.
+// readConfigFile returns the raw bytes of the config file at p.
+// 1. Expands ~ and absolute paths via expandPath.
+// 2. Reads the file with os.ReadFile and returns its bytes.
 func readConfigFile(p string) ([]byte, error) {
 	expanded, err := expandPath(p)
 	if err != nil {
@@ -78,8 +84,10 @@ func readConfigFile(p string) ([]byte, error) {
 	return raw, nil
 }
 
-// loadEnvFile loads the env file at p. godotenv.Load never overrides already-set
-// vars, so OS environment always wins. Missing file is silently ignored.
+// loadEnvFile populates process environment from a .env file without overriding existing vars.
+// 1. Returns immediately when p is empty (no env file declared).
+// 2. Expands ~ and absolute paths via expandPath.
+// 3. Calls godotenv.Load; the error is discarded so a missing file is silently ignored.
 func loadEnvFile(p string) error {
 	if p == "" {
 		return nil
@@ -92,8 +100,9 @@ func loadEnvFile(p string) error {
 	return nil
 }
 
-// expandPath resolves ~ to the user's home directory.
-// Absolute paths (/) are returned as-is.
+// expandPath normalises a file path for use with os.ReadFile.
+// 1. If p starts with "~/", resolves the home directory via os.UserHomeDir and joins the remainder.
+// 2. Otherwise returns p unchanged (handles absolute and relative paths).
 func expandPath(p string) (string, error) {
 	if strings.HasPrefix(p, "~/") {
 		home, err := os.UserHomeDir()
