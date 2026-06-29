@@ -1,0 +1,36 @@
+# Binaries
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test & coverage
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Go workspace
+go.work
+go.work.sum
+
+# Environment — never commit real secrets
+.env
+.env.local
+.env.stage
+.env.prod
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Air (live reload)
+tmp/
