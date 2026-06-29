@@ -2,7 +2,7 @@
   "env_file_name": ".env",
   "config": {
     "app": {
-      "name": "twospc",
+      "name": "golang-boilerplate",
       "env": ".env:APP_ENV",
       "version": "0.0.1"
     },

@@ -12,5 +12,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
-	_ = cfg
+
+	cfg.PrintConfig()
+
 }

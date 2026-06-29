@@ -17,12 +17,12 @@ var typedRefPattern = regexp.MustCompile(`^\.env:(string|int|float|bool|array):(
 var bareRefPattern = regexp.MustCompile(`^\.env:([^:]+)$`)
 
 // interpolateMap resolves env references in a config map.
-// 1. Allocates a result map of the same size.
-// 2. For each key-value pair:
-//    a. string  → calls resolveEnvRef and stores the result.
-//    b. map     → recurses into the nested map.
-//    c. other   → copies the value unchanged.
-// 3. Returns the fully resolved map, or the first error encountered.
+//  1. Allocates a result map of the same size.
+//  2. For each key-value pair:
+//     a. string  → calls resolveEnvRef and stores the result.
+//     b. map     → recurses into the nested map.
+//     c. other   → copies the value unchanged.
+//  3. Returns the fully resolved map, or the first error encountered.
 func interpolateMap(m map[string]any) (map[string]any, error) {
 	result := make(map[string]any, len(m))
 	for k, v := range m {

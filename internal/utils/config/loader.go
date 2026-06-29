@@ -113,3 +113,49 @@ func expandPath(p string) (string, error) {
 	}
 	return p, nil
 }
+
+// PrintConfig prints the current configuration to stdout in a human-readable format.
+// Sensitive fields (secrets, passwords, URIs) are masked.
+func (c *Config) PrintConfig() {
+	fmt.Println("=== App ===")
+	fmt.Printf("  name:    %s\n", c.AppConfig.Name)
+	fmt.Printf("  env:     %s\n", c.AppConfig.Env)
+	fmt.Printf("  version: %s\n", c.AppConfig.Version)
+
+	fmt.Println("=== Server ===")
+	fmt.Printf("  port:                 %d\n", c.ServerConfig.Port)
+	fmt.Printf("  read_timeout:         %d\n", c.ServerConfig.ReadTimeout)
+	fmt.Printf("  write_timeout:        %d\n", c.ServerConfig.WriteTimeout)
+	fmt.Printf("  idle_timeout:         %d\n", c.ServerConfig.IdealTimeout)
+	fmt.Printf("  cors_allowed_origins: %v\n", c.ServerConfig.CORSAllowedOrigins)
+
+	fmt.Println("=== Database ===")
+	fmt.Printf("  uri:                %s\n", maskSecret(c.DbConfig.Uri))
+	fmt.Printf("  max_open_conns:     %d\n", c.DbConfig.MaxOpenConns)
+	fmt.Printf("  max_idle_conns:     %d\n", c.DbConfig.MaxIdleConns)
+	fmt.Printf("  conn_max_lifetime:  %d\n", c.DbConfig.ConnMaxLifetime)
+	fmt.Printf("  conn_max_idle_time: %d\n", c.DbConfig.ConnMaxIdleTime)
+
+	fmt.Println("=== Redis ===")
+	fmt.Printf("  addr:     %s\n", c.RedisConfig.Addr)
+	fmt.Printf("  password: %s\n", maskSecret(c.RedisConfig.Password))
+	fmt.Printf("  db:       %d\n", c.RedisConfig.DB)
+
+	fmt.Println("=== OpenTelemetry ===")
+	fmt.Printf("  endpoint: %s\n", c.OpenTelConfig.Endpoint)
+	fmt.Printf("  enabled:  %v\n", c.OpenTelConfig.Enabled)
+
+	fmt.Println("=== Auth ===")
+	fmt.Printf("  access_token_secret:  %s\n", maskSecret(c.AuthConfig.AccessTokenSecret))
+	fmt.Printf("  refresh_token_secret: %s\n", maskSecret(c.AuthConfig.RefreshTokenSecret))
+	fmt.Printf("  access_token_expiry:  %d\n", c.AuthConfig.AccessTokenExpiry)
+	fmt.Printf("  refresh_token_expiry: %d\n", c.AuthConfig.RefreshTokenExpiry)
+}
+
+// maskSecret shows the first 4 characters of s and replaces the rest with asterisks.
+func maskSecret(s string) string {
+	if len(s) <= 4 {
+		return strings.Repeat("*", len(s))
+	}
+	return s[:4] + strings.Repeat("*", len(s)-4)
+}
