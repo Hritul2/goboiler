@@ -1,0 +1,40 @@
+{
+  "env_file_name": ".env.local",
+  "config": {
+    "app": {
+      "name": "golang-boilerplate",
+      "env": ".env:APP_ENV",
+      "version": "0.0.1",
+      "log_level": ".env:LOG_LEVEL"
+    },
+    "server": {
+      "port": ".env:int:SERVER_PORT",
+      "read_timeout": 30,
+      "write_timeout": 30,
+      "idle_timeout": 120,
+      "cors_allowed_origins": ".env:array:CORS_ALLOWED_ORIGINS"
+    },
+    "db": {
+      "uri": ".env:DATABASE_URL",
+      "max_open_conns": 25,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": 300,
+      "conn_max_idle_time": 60
+    },
+    "otel": {
+      "endpoint": ".env:OTEL_ENDPOINT",
+      "enabled": ".env:bool:OTEL_ENABLED"
+    },
+    "redis": {
+      "addr": ".env:REDIS_ADDR",
+      "password": ".env:REDIS_PASSWORD",
+      "db": 0
+    },
+    "auth": {
+      "access_token_secret": ".env:ACCESS_TOKEN_SECRET",
+      "refresh_token_secret": ".env:REFRESH_TOKEN_SECRET",
+      "access_token_expiry": 900,
+      "refresh_token_expiry": 604800
+    }
+  }
+}

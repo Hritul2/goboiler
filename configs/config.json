@@ -4,7 +4,8 @@
     "app": {
       "name": "golang-boilerplate",
       "env": ".env:APP_ENV",
-      "version": "0.0.1"
+      "version": "0.0.1",
+      "log_level": ".env:LOG_LEVEL"
     },
     "server": {
       "port": ".env:int:SERVER_PORT",
