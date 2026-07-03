@@ -15,8 +15,10 @@ import (
 // app holds every long-lived dependency started by start().
 // Add new fields here as subsequent steps (DB, Redis, server, …) land.
 type app struct {
-	log zerolog.Logger
-	obs *observability.Provider
+	cfg      *config.Config
+	log      zerolog.Logger
+	logClose func() error
+	obs      *observability.Provider
 }
 
 func main() {
@@ -39,13 +41,15 @@ func main() {
 // It always returns a non-nil *app so stop() can safely clean up whatever
 // was initialised before an error occurred.
 func start(cfg *config.Config) (*app, error) {
-	a := &app{}
+	a := &app{cfg: cfg}
 
-	a.log = logger.New(&cfg.AppConfig)
+	a.log, a.logClose = logger.New(&cfg.AppConfig)
 
-	ctx := context.Background()
+	// 5-second deadline prevents a hung OTLP dial from blocking startup.
+	initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	obs, err := observability.New(ctx, cfg, a.log)
+	obs, err := observability.New(initCtx, cfg, a.log)
 	if err != nil {
 		return a, err
 	}
@@ -60,7 +64,8 @@ func start(cfg *config.Config) (*app, error) {
 // stop shuts down every started dependency in reverse order.
 // Add teardown calls here as new fields are added to app.
 func stop(a *app) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	timeout := time.Duration(a.cfg.ServerConfig.ShutdownTimeout) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if a.obs != nil {
@@ -70,4 +75,9 @@ func stop(a *app) {
 	}
 
 	a.log.Info().Msg("shutdown complete")
+
+	// Close log file last so the shutdown log line is flushed first.
+	if a.logClose != nil {
+		_ = a.logClose()
+	}
 }

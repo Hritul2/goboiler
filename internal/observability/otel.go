@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -45,7 +46,7 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Provider
 		return nil, fmt.Errorf("otel resource: %w", err)
 	}
 
-	tp, err := buildTracerProvider(ctx, endpoint, res)
+	tp, err := buildTracerProvider(ctx, endpoint, cfg.OpenTelConfig.SampleRate, res)
 	if err != nil {
 		return nil, fmt.Errorf("otel tracer provider: %w", err)
 	}
@@ -62,12 +63,16 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Provider
 
 	otel.SetTracerProvider(tp)
 	otel.SetMeterProvider(mp)
+	global.SetLoggerProvider(lp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
-	)) // this is the default propagator for OTel, but we set it explicitly here for clarity
+	))
 
-	log.Info().Str("endpoint", endpoint).Msg("OpenTelemetry initialised")
+	log.Info().
+		Str("endpoint", endpoint).
+		Float64("sample_rate", cfg.OpenTelConfig.SampleRate).
+		Msg("OpenTelemetry initialised")
 
 	return &Provider{
 		tracerProvider: tp,
@@ -123,7 +128,7 @@ func buildResource(ctx context.Context, cfg *config.Config) (*resource.Resource,
 	)
 }
 
-func buildTracerProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+func buildTracerProvider(ctx context.Context, endpoint string, sampleRate float64, res *resource.Resource) (*sdktrace.TracerProvider, error) {
 	exp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
 	if err != nil {
 		return nil, err
@@ -131,7 +136,7 @@ func buildTracerProvider(ctx context.Context, endpoint string, res *resource.Res
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(sampleRate)),
 	), nil
 }
 
