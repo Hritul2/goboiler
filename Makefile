@@ -2,7 +2,7 @@ BINARY  := goboiler
 OUT_DIR := dist
 MAIN    := ./cmd
 
-.PHONY: dev build run tidy fmt
+.PHONY: dev build run tidy fmt test test-v test-cover
 
 dev:
 	go run $(MAIN)
@@ -19,3 +19,13 @@ tidy:
 
 fmt:
 	go fmt ./...
+
+test:
+	go test ./internal/...
+
+test-v:
+	go test ./internal/... -v
+
+test-cover:
+	go test ./internal/... -coverprofile=coverage.out
+	go tool cover -func=coverage.out
