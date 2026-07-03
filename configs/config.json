@@ -4,7 +4,7 @@
     "app": {
       "name": "golang-boilerplate",
       "env": ".env:APP_ENV",
-      "version": "0.0.1",
+      "version": ".env:APP_VERSION",
       "log_level": ".env:LOG_LEVEL"
     },
     "server": {
@@ -12,6 +12,7 @@
       "read_timeout": 30,
       "write_timeout": 30,
       "idle_timeout": 120,
+      "shutdown_timeout": 30,
       "cors_allowed_origins": ".env:array:CORS_ALLOWED_ORIGINS"
     },
     "db": {
@@ -23,7 +24,8 @@
     },
     "otel": {
       "endpoint": ".env:OTEL_ENDPOINT",
-      "enabled": ".env:bool:OTEL_ENABLED"
+      "enabled": ".env:bool:OTEL_ENABLED",
+      "sample_rate": ".env:float:OTEL_SAMPLE_RATE"
     },
     "redis": {
       "addr": ".env:REDIS_ADDR",

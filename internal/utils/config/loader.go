@@ -21,8 +21,9 @@ import (
 // 5. Resolves all .env:VAR and .env:type:VAR references in the config map via interpolateMap.
 // 6. Loads the resolved map into a koanf instance using "." as the key delimiter.
 // 7. Unmarshals koanf state into a Config struct using "koanf" struct tags.
-// 8. Runs go-playground/validator constraints on the struct and formats any errors.
-// 9. Returns the validated *Config, or the first error from any step above.
+// 8. Applies sensible defaults for optional fields via setDefaults.
+// 9. Runs go-playground/validator constraints on the struct and formats any errors.
+// 10. Returns the validated *Config, or the first error from any step above.
 func LoadConfig(configPath *string) (*Config, error) {
 	def := "configs/config.json"
 	if configPath == nil {
@@ -51,8 +52,8 @@ func LoadConfig(configPath *string) (*Config, error) {
 		return nil, fmt.Errorf("interpolate config: %w", err)
 	}
 
-	k := koanf.New(".")                                                      // use "." as the delimiter for nested keys
-	if err := k.Load(confmap.Provider(interpolated, "."), nil); err != nil { // Load the interpolated config map into koanf
+	k := koanf.New(".")
+	if err := k.Load(confmap.Provider(interpolated, "."), nil); err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
@@ -60,6 +61,8 @@ func LoadConfig(configPath *string) (*Config, error) {
 	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{Tag: "koanf"}); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+
+	setDefaults(&cfg)
 
 	validate := validator.New()
 	if err := validate.Struct(&cfg); err != nil {
@@ -69,9 +72,21 @@ func LoadConfig(configPath *string) (*Config, error) {
 	return &cfg, nil
 }
 
+// setDefaults fills in optional fields that are safe to omit from the env file.
+// Called after unmarshal and before validation so defaults satisfy any constraints.
+func setDefaults(cfg *Config) {
+	if cfg.AppConfig.LogLevel == "" {
+		cfg.AppConfig.LogLevel = "info"
+	}
+	if cfg.OpenTelConfig.SampleRate == 0 {
+		cfg.OpenTelConfig.SampleRate = 1.0
+	}
+	if cfg.ServerConfig.ShutdownTimeout == 0 {
+		cfg.ServerConfig.ShutdownTimeout = 30
+	}
+}
+
 // readConfigFile returns the raw bytes of the config file at p.
-// 1. Expands ~ and absolute paths via expandPath.
-// 2. Reads the file with os.ReadFile and returns its bytes.
 func readConfigFile(p string) ([]byte, error) {
 	expanded, err := expandPath(p)
 	if err != nil {
@@ -85,9 +100,7 @@ func readConfigFile(p string) ([]byte, error) {
 }
 
 // loadEnvFile populates process environment from a .env file without overriding existing vars.
-// 1. Returns immediately when p is empty (no env file declared).
-// 2. Expands ~ and absolute paths via expandPath.
-// 3. Calls godotenv.Load; the error is discarded so a missing file is silently ignored.
+// Returns immediately when p is empty. A missing file is silently ignored.
 func loadEnvFile(p string) error {
 	if p == "" {
 		return nil
@@ -100,9 +113,7 @@ func loadEnvFile(p string) error {
 	return nil
 }
 
-// expandPath normalises a file path for use with os.ReadFile.
-// 1. If p starts with "~/", resolves the home directory via os.UserHomeDir and joins the remainder.
-// 2. Otherwise returns p unchanged (handles absolute and relative paths).
+// expandPath normalises a file path: resolves "~/" prefix, passes everything else through.
 func expandPath(p string) (string, error) {
 	if strings.HasPrefix(p, "~/") {
 		home, err := os.UserHomeDir()
@@ -118,15 +129,17 @@ func expandPath(p string) (string, error) {
 // Sensitive fields (secrets, passwords, URIs) are masked.
 func (c *Config) PrintConfig() {
 	fmt.Println("=== App ===")
-	fmt.Printf("  name:    %s\n", c.AppConfig.Name)
-	fmt.Printf("  env:     %s\n", c.AppConfig.Env)
-	fmt.Printf("  version: %s\n", c.AppConfig.Version)
+	fmt.Printf("  name:      %s\n", c.AppConfig.Name)
+	fmt.Printf("  env:       %s\n", c.AppConfig.Env)
+	fmt.Printf("  version:   %s\n", c.AppConfig.Version)
+	fmt.Printf("  log_level: %s\n", c.AppConfig.LogLevel)
 
 	fmt.Println("=== Server ===")
 	fmt.Printf("  port:                 %d\n", c.ServerConfig.Port)
 	fmt.Printf("  read_timeout:         %d\n", c.ServerConfig.ReadTimeout)
 	fmt.Printf("  write_timeout:        %d\n", c.ServerConfig.WriteTimeout)
-	fmt.Printf("  idle_timeout:         %d\n", c.ServerConfig.IdealTimeout)
+	fmt.Printf("  idle_timeout:         %d\n", c.ServerConfig.IdleTimeout)
+	fmt.Printf("  shutdown_timeout:     %d\n", c.ServerConfig.ShutdownTimeout)
 	fmt.Printf("  cors_allowed_origins: %v\n", c.ServerConfig.CORSAllowedOrigins)
 
 	fmt.Println("=== Database ===")
@@ -142,8 +155,9 @@ func (c *Config) PrintConfig() {
 	fmt.Printf("  db:       %d\n", c.RedisConfig.DB)
 
 	fmt.Println("=== OpenTelemetry ===")
-	fmt.Printf("  endpoint: %s\n", c.OpenTelConfig.Endpoint)
-	fmt.Printf("  enabled:  %v\n", c.OpenTelConfig.Enabled)
+	fmt.Printf("  endpoint:    %s\n", c.OpenTelConfig.Endpoint)
+	fmt.Printf("  enabled:     %v\n", c.OpenTelConfig.Enabled)
+	fmt.Printf("  sample_rate: %.2f\n", c.OpenTelConfig.SampleRate)
 
 	fmt.Println("=== Auth ===")
 	fmt.Printf("  access_token_secret:  %s\n", maskSecret(c.AuthConfig.AccessTokenSecret))
