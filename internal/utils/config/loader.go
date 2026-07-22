@@ -144,6 +144,7 @@ func (c *Config) PrintConfig() {
 
 	fmt.Println("=== Database ===")
 	fmt.Printf("  uri:                %s\n", maskSecret(c.DbConfig.Uri))
+	fmt.Printf("  name:               %s\n", c.DbConfig.Name)
 	fmt.Printf("  max_open_conns:     %d\n", c.DbConfig.MaxOpenConns)
 	fmt.Printf("  max_idle_conns:     %d\n", c.DbConfig.MaxIdleConns)
 	fmt.Printf("  conn_max_lifetime:  %d\n", c.DbConfig.ConnMaxLifetime)

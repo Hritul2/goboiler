@@ -43,7 +43,8 @@ func validConfigJSON() map[string]any {
 				"cors_allowed_origins":  []string{"http://localhost:3000"},
 			},
 			"db": map[string]any{
-				"uri":               "postgres://x:x@localhost/db",
+				"uri":               "mongodb://localhost:27017",
+				"name":              "test-db",
 				"max_open_conns":    25,
 				"max_idle_conns":    10,
 				"conn_max_lifetime": 300,
