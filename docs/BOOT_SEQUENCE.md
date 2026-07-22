@@ -60,11 +60,32 @@ Based on: https://github.com/sriniously/go-boilerplate
   deployment.
 
 ### 6. Async Worker (Asynq over Redis)
-- `asynq.NewClient` (for enqueuing jobs)
-- `asynq.NewServer` (for consuming jobs) with queue priorities: `critical`, `default`, `low`
-- Register task handlers on mux
-- `server.Start()` in background goroutine
-- `defer jobService.Stop()` on shutdown
+- Before calling `Init`, build the consumer side: an
+  `asyncprocessor.Router` with every domain's task handlers registered
+  against it (e.g. `router.Handle(email.TaskWelcomeEmail,
+  email.NewWelcomeEmailHandler(sender, log))`). asyncprocessor itself has no
+  idea what any task does — this registration step, at the composition
+  root, is what wires a domain's handler to its task type.
+- Call the async job package's singleton `Init(ctx, cfg, log, router)` (see
+  CODING_SEQUENCE.md step 13, `internal/services/asyncprocessor`) — mirrors
+  the db/redis singleton pattern. `Init` does the full boot in one call:
+  `asynq.NewClientFromRedisClient`/`NewServerFromRedisClient` (both reusing
+  step 5's already-connected, already-instrumented redis client — never a
+  second connection pool) with queue priorities (`critical`, `default`,
+  `low`), then starts the server against the caller-supplied router.
+- **No wrapper goroutine needed** — `asynq.Server.Start` is non-blocking (it
+  spawns its own internal goroutines and returns immediately; confirmed
+  against the installed module source, not assumed).
+- No synchronous connectivity check here — asynq has no `Ping` equivalent.
+  This relies on step 5's redis.Init having already hard-failed against the
+  same address; a narrow race window between the two is accepted, not
+  silently assumed.
+- Teardown: `Close(ctx)` — stops the server (draining in-flight tasks up to
+  `Config.ShutdownTimeout`). It does **not** close the Redis connection —
+  that connection is shared with step 5's redis singleton, which owns
+  closing it (asynq refuses to close a connection it doesn't own). See step
+  12 for the exact shutdown position (job before redis, since the queue
+  needs Redis alive to drain).
 
 ### 7. Repositories
 - Pure data-access layer
@@ -74,11 +95,23 @@ Based on: https://github.com/sriniously/go-boilerplate
 
 ### 8. Services
 - Business logic layer
-- Receives: repos + job client (for enqueuing) + email sender + config
+- Receives: repos + an `Enqueuer` interface (satisfied by
+  `asyncprocessor.Get().Client`) + config
 - Owns all domain rules
-- The email sender (CODING_SEQUENCE.md step 12) is a plain constructor, not a
+- A service that only *enqueues* work (e.g. UserService enqueuing a welcome
+  email) needs just the `Enqueuer` — it never needs an `email.Sender`
+  directly. The sender is consumer-side: it's built once at step 6, to
+  register the actual handler against the router; services only ever touch
+  the producer side (building/enqueuing a task). A service that needs to
+  send email *synchronously* (not via the queue) would receive an
+  `email.Sender` (CODING_SEQUENCE.md step 12) as a plain constructor, not a
   boot-time singleton — construct it here (or in the server struct) and
   inject it, rather than adding it to main.go's start/stop sequence
+- Services depend on the narrow `Enqueuer` interface, not the async job
+  package's singleton accessor directly (CODING_SEQUENCE.md step 15) — this
+  is what keeps a service's business rules unit-testable without a live
+  Redis; the real wiring site (server struct) passes the singleton's client
+  in at construction time
 
 ### 9. Handlers
 - HTTP handler structs
@@ -105,10 +138,12 @@ Register routes: system (`/health`, `/openapi`) + versioned group `/api/v1`
 ### 12. Graceful Shutdown (on SIGINT)
 Reverse of the boot order above:
 1. `httpServer.Shutdown(ctx)` — drain in-flight requests (30s timeout)
-2. Close the redis singleton (`redis.Get().Close(ctx)`) — closes before db
+2. Close the async job singleton (`asyncprocessor.Get().Close(ctx)`) — closes
+   before redis since the queue needs Redis alive to drain in-flight tasks,
+   and it was opened after redis at boot (step 6 follows step 5)
+3. Close the redis singleton (`redis.Get().Close(ctx)`) — closes before db
    since it was opened after db at boot (step 5 follows step 4)
-3. Close the db singleton (`db.Get().Close(ctx)`)
-4. Asynq server shutdown + client close
+4. Close the db singleton (`db.Get().Close(ctx)`)
 5. Flush otel tracer provider (`tp.Shutdown`)
 6. Flush logger
 

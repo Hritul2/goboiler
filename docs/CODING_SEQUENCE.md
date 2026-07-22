@@ -178,32 +178,134 @@ Each layer only imports from layers above it in this list.
 - `internal/lib/email/templates.go` — embedded HTML templates (`html/template`
   for escaping)
 - `internal/lib/email/emails.go` — typed send functions (e.g. `SendWelcome`)
-- Depends on: config
+- `internal/lib/email/tasks.go` — this domain's async producer + consumer
+  (step 13's task type constant, payload struct, `New<X>Task` producer, and
+  `New<X>Handler` consumer factory), colocated with the synchronous `Sender`
+  it wraps rather than living inside the queue package. The consumer
+  factory's returned func matches asyncprocessor's `HandlerFunc` shape
+  structurally — no import of asyncprocessor needed here, dependency runs
+  the other way (composition root imports both and wires them together).
+- Depends on: config (and asynq, inherently, for producing/consuming tasks —
+  not something worth abstracting away absent a second queue library)
 
 ## 13. Async Job Service
-`internal/lib/job/job.go`
-- `asynq.NewClient` + `asynq.NewServer`
-- Queue priority config
-
-`internal/lib/job/handlers.go`
-- Task handler implementations (receive Redis message → do work)
-
-`internal/lib/job/email_tasks.go`
-- Task type constants + payload structs for email jobs
-- Depends on: config, email client
+`internal/services/asyncprocessor/job.go`
+- Library: `hibiken/asynq` over Redis — confirmed by reading the reference
+  implementation's (github.com/sriniously/go-boilerplate) go.mod directly
+  rather than assuming a version.
+- Naming note: the doc originally said `internal/lib/job` (matching the
+  reference exactly). The final choice moved it under `internal/services/`
+  as `asyncprocessor` instead — this repo groups the async job **service**
+  with the domain services (`internal/services/user`) rather than with
+  passive infra clients (`internal/lib/email`), since it owns a running
+  background worker with its own lifecycle, not just an outbound client.
+  `internal/services/` uses one subpackage per concern (`asyncprocessor`,
+  `user`), plus a top-level `services.go` aggregator.
+- Wire it as a **singleton** (`Init`/`Get`, mirroring step 6/8's db/redis
+  pattern) rather than the reference's plain-constructor-held-on-a-struct
+  design — this repo has no server struct yet, and the established idiom
+  here for boot-managed cross-cutting infra is the package singleton.
+  `Init` does the **full boot** in one call — client, server, and starting
+  consumption — since `asynq.Server.Start` is **non-blocking** (spawns its
+  own internal goroutines and returns immediately; confirmed by reading the
+  installed module source, not assumed). No separate exported `Start()`
+  step.
+- **Stay 100% domain-agnostic — this package must never import anything
+  domain-specific (email, notifications, exports, whatever).** The first
+  version of this step hardcoded a single email task directly into `job.go`
+  (`Init` built an `email.Sender` itself, registered one handler inline) —
+  that works for exactly one task kind and forces every new job type to
+  edit `job.go`'s imports and constructor signature. Instead, split
+  producer/consumer properly:
+  - `internal/services/asyncprocessor/router.go` — a `HandlerFunc` type
+    (`func(ctx, *asynq.Task) error`, named to parallel `http.HandlerFunc`)
+    and a `Router` (thin wrapper over `asynq.ServeMux`) with one method,
+    `Handle(taskType string, h HandlerFunc)`. This is "the service which
+    routes the task to the right place" — the single place dispatch is
+    decided, with zero knowledge of what any task does.
+  - `Init(ctx, cfg, log, router *Router)` takes a **caller-supplied**
+    Router and calls `server.Start(router.mux)` — the caller (composition
+    root) builds the router and registers every domain's handlers against
+    it *before* calling `Init`.
+  - Each domain owns its own task type constant, payload struct, a
+    **producer** (`New<X>Task(...) (*asynq.Task, error)`, pure, unit-tested)
+    and a **consumer factory** (`New<X>Handler(deps...) func(ctx, *asynq.Task)
+    error`, closing over whatever the handler needs — e.g. email's lives in
+    `internal/lib/email/tasks.go`, right next to the synchronous `Sender` it
+    wraps). Adding a second job kind later means adding one new domain file
+    plus one `router.Handle(...)` call at the composition root — zero
+    changes to asyncprocessor itself.
+- asynq has no `Ping` equivalent, so `Init` cannot hard-fail on an
+  unreachable Redis the way db/redis do — it relies on redis's own Init
+  having already hard-failed against the same address earlier in boot.
+  Document this narrow gap rather than silently assuming connectivity.
+- **Reuse the redis singleton's connection — don't build a second one.**
+  The reference implementation (and most asynq tutorials) construct the job
+  queue straight from `asynq.RedisClientOpt{Addr, Password, DB}`, which
+  looks harmless but silently opens an entirely separate connection pool to
+  the same Redis server, bypassing whatever tracing/instrumentation the
+  step-8 redis singleton already attached (`redisotel` here) and doubling
+  live connections for no reason. Instead, once step 8's redis singleton
+  exists, fetch its live client (`redis.Get().Client()`, a
+  `redis.UniversalClient`) and pass it to `asynq.NewClientFromRedisClient`/
+  `NewServerFromRedisClient` — asynq supports this exact pattern precisely
+  so callers can share a connection. One consequence: asynq then refuses to
+  close that connection itself (`Client.Close()` returns an error for a
+  shared connection) — ownership of closing it stays with whichever
+  package opened it (redis's `Close`, later in the shutdown order), so the
+  job service's own `Close` only stops its server, nothing else.
+- `asynq.Option` is a public interface, so a producer's task-construction
+  options (retry count, queue, timeout) are unit-testable, unlike a concrete
+  driver type. `Router.Handle`'s dispatch is unit-testable too — register a
+  fake handler, build a task, invoke the underlying mux directly — with no
+  live Redis needed; only `Init`'s real dial+`Start` is integration-verified
+  manually.
+- A consumer handler that only calls an injected interface (e.g.
+  `email.Sender`) is fully unit-testable with no live Redis.
+- Depends on: config, redis. (Domains depend on *this* package's
+  `HandlerFunc`/`Router` shape to register themselves — the dependency runs
+  domain → asyncprocessor, never the other way.)
 
 ## 14. Validation Utils
-`internal/validation/utils.go`
-- Custom validator registration
-- Request parsing + validation helpers
+`internal/validation/validation.go`
+- The reference implementation actually uses `go-playground/validator`
+  (struct tags), not a true schema validator — if you want a real
+  "Zod for Go" equivalent (fluent chainable schemas, e.g.
+  `zog.String().Email().Required()`), pick a dedicated library
+  (e.g. `github.com/Oudwins/zog`) rather than assuming the reference's
+  approach is what "zod equivalent" means.
+- Keep validation errors as a small package-local type (e.g. `Errors
+  map[string][]string`) rather than extending the core `errors` package —
+  the validation library's issue shape is its own concern; translate to
+  `errs.BadRequest(...)` only at the call site (service today, handlers
+  later at step 18).
+- `internal/validation/<domain>.go` — one schema + input struct pair per
+  domain (e.g. `UserCreateSchema`/`UserCreateInput`), imported directly by
+  the matching service as its method parameter type — no duplicate DTO.
 - Depends on nothing internal (or just errors)
 
 ## 15. Services
-`internal/service/<domain>.go`
-`internal/service/services.go`
+`internal/services/<domain>/<domain>.go`
+`internal/services/services.go`
+- Naming note: the doc originally said `internal/service` (singular,
+  domain-service files flat in one package). The final choice consolidated
+  every service — domain services and infra services like the async job
+  queue — under one `internal/services/` tree, one subpackage per concern,
+  with a top-level `services.go` aggregator importing each subpackage. This
+  also absorbed the stale, never-implemented `internal/services/{authc,
+  authz,opentelemetry,server}` scaffold slots that predated this step —
+  `opentelemetry`/`server` were already superseded by `internal/observability`
+  and the future step-16 `internal/server`.
 - Business logic — call repos, enqueue jobs, send emails
-- One service per domain
-- Depends on: repos, job client, email client, errors
+- One subpackage per domain
+- Depend on repo **interfaces** (never concrete driver types) and narrow
+  interfaces for cross-cutting singletons — e.g. an `Enqueuer` interface
+  satisfied by `*asynq.Client`, rather than calling the async job package's
+  `Get()` singleton directly from inside a service. Without this, a service
+  method that enqueues work is untestable without live Redis. The real
+  wiring site (step 16) still passes the singleton's client into the
+  constructor; the service itself never imports the singleton accessor.
+- Depends on: repos, job client, email client, validation, errors
 
 ## 16. Server Struct
 `internal/server/server.go`
@@ -254,10 +356,19 @@ config
   └── models                                           │
         └── repo ────────────────────────────────────┤
   └── email                                            │
-  └── job (asynq+redis)                                │
-        └── service ─────────────────────────────────┤
+  └── validation                                       │
+  └── services/asyncprocessor (asynq+redis)            │
+        └── services/<domain> ────────────────────────┤
               └── handler────────────────────────────┤
                     └── router
                           └── server struct
                                 └── main.go
 ```
+
+Note: `email` and `services/asyncprocessor` have no edge between them — neither
+imports the other. main.go (the composition root, future server struct) is
+where they meet: it builds an `email.Sender`, registers
+`email.NewWelcomeEmailHandler(sender, log)` against an
+`asyncprocessor.Router` for `email.TaskWelcomeEmail`, then passes that
+router into `asyncprocessor.Init`. A future job kind follows the same shape
+without touching either existing package.
