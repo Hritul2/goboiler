@@ -263,9 +263,3 @@ func TestRedisSentinels(t *testing.T) {
 	}
 }
 
-func TestStubFunctions(t *testing.T) {
-	t.Run("IsCacheNil_always_false", func(t *testing.T) {
-		assert.False(t, errs.IsCacheNil(stderrors.New("any error")))
-		assert.False(t, errs.IsCacheNil(nil))
-	})
-}

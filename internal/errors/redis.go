@@ -13,25 +13,11 @@ var (
 	ErrCacheTimeout = ServiceUnavailable("cache operation timed out")
 )
 
-// IsCacheNil reports whether err is a go-redis Nil reply (cache miss sentinel).
-//
-// Stub: always returns false until go-redis is wired in step 8.
-//
-// Step 8 integration point (internal/redis/redis.go):
-//
-//	import stderrors "errors"
-//	import "github.com/redis/go-redis/v9"
-//
-//	return stderrors.Is(err, redis.Nil)
-func IsCacheNil(_ error) bool {
-	return false
-}
-
-// --- go-redis error normalisation (step 8, internal/redis/) ---
-//
-// internal/redis/ imports this package (aliased as errs) and exposes a helper
-// (e.g. NormalizeRedisError) that maps go-redis errors before they reach callers:
+// Driver-error normalisation lives in internal/redis/errors.go
+// (redis.NormalizeRedisError), which imports this package aliased as errs and
+// maps go-redis errors to the sentinels above before they reach callers:
 //
 //	redis.Nil                → errs.ErrCacheMiss
-//	*net.OpError / dial err  → errs.ErrCacheUnavailable
 //	context.DeadlineExceeded → errs.ErrCacheTimeout
+//	net.Error (timeout)      → errs.ErrCacheTimeout
+//	net.Error (other)        → errs.ErrCacheUnavailable
