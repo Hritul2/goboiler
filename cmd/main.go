@@ -11,6 +11,8 @@ import (
 	"github.com/hritul2/goboiler/internal/logger"
 	"github.com/hritul2/goboiler/internal/observability"
 	"github.com/hritul2/goboiler/internal/redis"
+	"github.com/hritul2/goboiler/internal/services"
+	"github.com/hritul2/goboiler/internal/services/asyncprocessor"
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
 
@@ -23,6 +25,7 @@ type app struct {
 	obs      *observability.Provider
 	db       db.Database
 	redis    *redis.Redis
+	job      *asyncprocessor.JobService
 }
 
 func main() {
@@ -79,6 +82,21 @@ func start(cfg *config.Config) (*app, error) {
 	}
 	a.redis = r
 
+	// Job service after redis. Which task handlers exist lives in
+	// internal/services.NewJobRouter, not here — this just wires the result in.
+	router, err := services.NewJobRouter(cfg, a.log)
+	if err != nil {
+		return a, err
+	}
+
+	// Init starts consuming — asynq.Server.Start is non-blocking, so no
+	// wrapper goroutine is needed here.
+	j, err := asyncprocessor.Init(context.Background(), cfg, a.log, router)
+	if err != nil {
+		return a, err
+	}
+	a.job = j
+
 	return a, nil
 }
 
@@ -88,6 +106,12 @@ func stop(a *app) {
 	timeout := time.Duration(a.cfg.ServerConfig.ShutdownTimeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	if a.job != nil {
+		if err := a.job.Close(ctx); err != nil {
+			a.log.Error().Err(err).Msg("job shutdown error")
+		}
+	}
 
 	if a.redis != nil {
 		if err := a.redis.Close(ctx); err != nil {
