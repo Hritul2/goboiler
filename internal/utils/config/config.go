@@ -7,4 +7,5 @@ type Config struct {
 	OpenTelConfig `koanf:"otel"`
 	RedisConfig   `koanf:"redis"`
 	AuthConfig    `koanf:"auth"`
+	EmailConfig   `koanf:"email"`
 }

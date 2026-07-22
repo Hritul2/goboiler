@@ -160,6 +160,15 @@ func (c *Config) PrintConfig() {
 	fmt.Printf("  enabled:     %v\n", c.OpenTelConfig.Enabled)
 	fmt.Printf("  sample_rate: %.2f\n", c.OpenTelConfig.SampleRate)
 
+	fmt.Println("=== Email ===")
+	fmt.Printf("  enabled:   %v\n", c.EmailConfig.Enabled)
+	fmt.Printf("  host:      %s\n", c.EmailConfig.Host)
+	fmt.Printf("  port:      %d\n", c.EmailConfig.Port)
+	fmt.Printf("  username:  %s\n", c.EmailConfig.Username)
+	fmt.Printf("  password:  %s\n", maskSecret(c.EmailConfig.Password))
+	fmt.Printf("  from:      %s\n", c.EmailConfig.From)
+	fmt.Printf("  from_name: %s\n", c.EmailConfig.FromName)
+
 	fmt.Println("=== Auth ===")
 	fmt.Printf("  access_token_secret:  %s\n", maskSecret(c.AuthConfig.AccessTokenSecret))
 	fmt.Printf("  refresh_token_secret: %s\n", maskSecret(c.AuthConfig.RefreshTokenSecret))

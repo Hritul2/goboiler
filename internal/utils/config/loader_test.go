@@ -66,6 +66,15 @@ func validConfigJSON() map[string]any {
 				"access_token_expiry":  900,
 				"refresh_token_expiry": 604800,
 			},
+			"email": map[string]any{
+				"enabled":   false,
+				"host":      "",
+				"port":      0,
+				"username":  "",
+				"password":  "",
+				"from":      "",
+				"from_name": "",
+			},
 		},
 	}
 }
@@ -220,4 +229,47 @@ func TestLoadConfig_otelDisabledNoEndpoint(t *testing.T) {
 	path := writeConfigFile(t, raw)
 	_, err := LoadConfig(&path)
 	require.NoError(t, err)
+}
+
+func TestLoadConfig_emailDisabledNoHost(t *testing.T) {
+	// The fixture's email block is already disabled with empty fields —
+	// mirroring the otel required_if pattern, this must load fine.
+	path := writeConfigFile(t, validConfigJSON())
+	cfg, err := LoadConfig(&path)
+	require.NoError(t, err)
+	assert.False(t, cfg.EmailConfig.Enabled)
+}
+
+func TestLoadConfig_emailEnabledMissingHost(t *testing.T) {
+	raw := validConfigJSON()
+	raw["config"].(map[string]any)["email"].(map[string]any)["enabled"] = true
+
+	path := writeConfigFile(t, raw)
+	_, err := LoadConfig(&path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "config validation failed")
+}
+
+func TestLoadConfig_emailEnabledValid(t *testing.T) {
+	raw := validConfigJSON()
+	raw["config"].(map[string]any)["email"] = map[string]any{
+		"enabled":   true,
+		"host":      "smtp.example.com",
+		"port":      587,
+		"username":  "mailer",
+		"password":  "s3cret",
+		"from":      "noreply@example.com",
+		"from_name": "Example",
+	}
+
+	path := writeConfigFile(t, raw)
+	cfg, err := LoadConfig(&path)
+	require.NoError(t, err)
+	assert.True(t, cfg.EmailConfig.Enabled)
+	assert.Equal(t, "smtp.example.com", cfg.EmailConfig.Host)
+	assert.Equal(t, 587, cfg.EmailConfig.Port)
+	assert.Equal(t, "mailer", cfg.EmailConfig.Username)
+	assert.Equal(t, "s3cret", cfg.EmailConfig.Password)
+	assert.Equal(t, "noreply@example.com", cfg.EmailConfig.From)
+	assert.Equal(t, "Example", cfg.EmailConfig.FromName)
 }
