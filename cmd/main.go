@@ -10,6 +10,7 @@ import (
 	"github.com/hritul2/goboiler/internal/db"
 	"github.com/hritul2/goboiler/internal/logger"
 	"github.com/hritul2/goboiler/internal/observability"
+	"github.com/hritul2/goboiler/internal/redis"
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
 
@@ -21,6 +22,7 @@ type app struct {
 	logClose func() error
 	obs      *observability.Provider
 	db       db.Database
+	redis    *redis.Redis
 }
 
 func main() {
@@ -69,6 +71,14 @@ func start(cfg *config.Config) (*app, error) {
 	}
 	a.db = database
 
+	// Redis after db per BOOT_SEQUENCE step 5; Init pings with its own 5s
+	// deadline — hard fail on an unreachable server.
+	r, err := redis.Init(context.Background(), cfg, a.log)
+	if err != nil {
+		return a, err
+	}
+	a.redis = r
+
 	return a, nil
 }
 
@@ -78,6 +88,12 @@ func stop(a *app) {
 	timeout := time.Duration(a.cfg.ServerConfig.ShutdownTimeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	if a.redis != nil {
+		if err := a.redis.Close(ctx); err != nil {
+			a.log.Error().Err(err).Msg("redis shutdown error")
+		}
+	}
 
 	if a.db != nil {
 		if err := a.db.Close(ctx); err != nil {
