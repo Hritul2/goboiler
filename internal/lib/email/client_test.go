@@ -10,13 +10,16 @@ import (
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
 
-// fakeSender captures the last Email for assertion in emails_test.go.
+// fakeSender captures the last Email for assertion in emails_test.go and
+// tasks_test.go.
 type fakeSender struct {
 	last Email
+	sent bool
 }
 
 func (f *fakeSender) Send(_ context.Context, e Email) error {
 	f.last = e
+	f.sent = true
 	return nil
 }
 
