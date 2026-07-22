@@ -4,6 +4,12 @@ Based on: https://github.com/sriniously/go-boilerplate
 
 > Observability: **OpenTelemetry** throughout (not New Relic)
 
+> Like CODING_SEQUENCE.md, this order is language-agnostic and doubles as
+> the guideline for a future Rust rewrite — steps 3–4 in particular were
+> generalized after building the Go db layer as a driver-swappable
+> singleton (MongoDB active, Postgres sketched) rather than a
+> Postgres-only pool.
+
 ---
 
 ## Startup Order
@@ -19,20 +25,39 @@ Based on: https://github.com/sriniously/go-boilerplate
 - Create structured logger (zerolog) wired to otel log bridge or stdout JSON
 - All subsequent steps log through this
 
-### 3. DB Migrations
-- Run `tern` migrations over a raw `pgx` connection (not the pool)
+### 3. DB Migrations (SQL backends only)
+- Run `tern` (or equivalent) migrations over a raw connection, not the pool
 - Done before the pool opens so schema is ready before any service touches DB
 - Skip in local env if desired — run manually via task command
+- Document/schemaless stores (e.g. MongoDB) have no migration chain — the
+  equivalent is an idempotent `ensureIndexes` call, which can run as part of
+  step 4 instead of as its own boot phase
 
-### 4. Database Pool
-- Open `pgxpool` with tuned limits: max open conns, idle conns, conn lifetime, idle time
-- Attach `otelpgx.NewTracer()` for query tracing
-- Ping with timeout — hard fail here
+### 4. Database Connect
+- Call the db package's singleton `Init(ctx, cfg, log)` (see
+  CODING_SEQUENCE.md step 6) — connects with tuned limits (max open conns,
+  idle conns, conn/idle lifetime) mapped onto whatever the active driver's
+  client-options type exposes
+- Attach tracing at client-construction time: a contrib tracer set on the
+  pool config (`otelpgx.NewTracer()`) for SQL drivers, or a command/event
+  monitor passed into the client options for drivers without a maintained
+  OTel package yet (e.g. the Mongo Go driver v2 — the reference
+  implementation hand-rolled a small monitor wrapper for this)
+- Ping with a short internal timeout — hard fail here, before the server
+  ever starts accepting requests
 
 ### 5. Redis
-- Open `go-redis` client
-- Attach `redisotel` hook for span instrumentation
-- Ping with 5s timeout — decide: hard fail or soft warn based on your dependency needs
+- Call the redis package's singleton `Init(ctx, cfg, log)` (see
+  CODING_SEQUENCE.md step 8) — mirrors the db singleton pattern, but returns
+  a concrete client wrapper rather than an interface (no second
+  implementation is planned)
+- Attach `redisotel` hooks at client-construction time for span + metric
+  instrumentation
+- Ping with a short timeout — **hard fail** is the recommended default: once
+  the async job queue (step 6) rides on Redis, a degraded connection is a
+  hard dependency anyway, so failing at boot beats a silently broken queue at
+  runtime. Soft-warn only if Redis is strictly an optional cache in your
+  deployment.
 
 ### 6. Async Worker (Asynq over Redis)
 - `asynq.NewClient` (for enqueuing jobs)
@@ -43,13 +68,17 @@ Based on: https://github.com/sriniously/go-boilerplate
 
 ### 7. Repositories
 - Pure data-access layer
-- Receives: DB pool + Redis client (via server struct)
+- Receives: db singleton + Redis client (via server struct, or `db.Get()`/
+  `db.GetMongo()` directly)
 - No business logic — only queries and cache reads/writes
 
 ### 8. Services
 - Business logic layer
-- Receives: repos + job client (for enqueuing) + config
+- Receives: repos + job client (for enqueuing) + email sender + config
 - Owns all domain rules
+- The email sender (CODING_SEQUENCE.md step 12) is a plain constructor, not a
+  boot-time singleton — construct it here (or in the server struct) and
+  inject it, rather than adding it to main.go's start/stop sequence
 
 ### 9. Handlers
 - HTTP handler structs
@@ -74,20 +103,31 @@ Register routes: system (`/health`, `/openapi`) + versioned group `/api/v1`
 - `ListenAndServe()` in goroutine
 
 ### 12. Graceful Shutdown (on SIGINT)
+Reverse of the boot order above:
 1. `httpServer.Shutdown(ctx)` — drain in-flight requests (30s timeout)
-2. Close DB pool
-3. Asynq server shutdown + client close
-4. Flush otel tracer provider (`tp.Shutdown`)
-5. Flush logger
+2. Close the redis singleton (`redis.Get().Close(ctx)`) — closes before db
+   since it was opened after db at boot (step 5 follows step 4)
+3. Close the db singleton (`db.Get().Close(ctx)`)
+4. Asynq server shutdown + client close
+5. Flush otel tracer provider (`tp.Shutdown`)
+6. Flush logger
 
 ---
 
 ## OpenTelemetry Wiring Reference
 
-| Concern | Package |
+These are the Go packages used by the reference implementation; treat the
+"Concern" column as the thing every language/stack needs to wire, and the
+"Go package" column as one worked example. In a Rust rewrite the equivalents
+live in the `tracing`/`opentelemetry` crate family; where a driver has no
+maintained OTel integration yet, fall back to its own event/command hook and
+emit spans by hand (see CODING_SEQUENCE.md step 6 and BOOT_SEQUENCE.md step 4).
+
+| Concern | Go package (reference impl) |
 |---|---|
 | Tracer provider + OTLP export | `go.opentelemetry.io/otel` + `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` |
-| pgx query tracing | `go.opentelemetry.io/contrib/instrumentation/github.com/jackc/pgx/otelpgx` |
+| SQL query tracing (Postgres/pgx) | `go.opentelemetry.io/contrib/instrumentation/github.com/jackc/pgx/otelpgx` |
+| Document-store tracing (MongoDB) | `go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/v2/mongo/otelmongo` — a command monitor passed into client options, same pattern as otelpgx |
 | Redis hook | `github.com/redis/go-redis/extra/redisotel/v9` |
 | Echo middleware | `go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho` |
 | HTTP client tracing | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` |
