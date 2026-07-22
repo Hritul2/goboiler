@@ -1,7 +1,7 @@
 package errors
 
 // DB-scenario sentinels. Repositories return these (or wrap them with fmt.Errorf)
-// so that services and handlers never see raw pgx errors.
+// so that services and handlers never see raw driver errors.
 //
 // Note: ErrDBUnavailable and ErrDBTimeout both carry Code = "SERVICE_UNAVAILABLE",
 // so errors.Is(ErrDBTimeout, ErrDBUnavailable) returns true. Callers that need to
@@ -23,29 +23,15 @@ var (
 	ErrDBConstraint = Unprocessable("database constraint violation")
 )
 
-// IsDBUnavailable reports whether err indicates the database cannot be reached.
+// Driver-error mapping lives in internal/db/errors.go (db.MapDBError), which
+// imports this package aliased as errs and normalises Mongo driver errors to
+// the sentinels above before they reach the service layer.
 //
-// Stub: always returns false until pgx is wired in step 6.
-//
-// Step 6 integration point (internal/database/database.go):
-//
-//	import "github.com/jackc/pgx/v5/pgconn"
-//	import stderrors "errors"
-//
-//	var pgErr *pgconn.ConnectError
-//	return stderrors.As(err, &pgErr)
-func IsDBUnavailable(_ error) bool {
-	return false
-}
-
-// --- pgx → domain error mapping (step 7, internal/sqlerr/) ---
-//
-// internal/sqlerr/ imports this package (aliased as errs) and maps pgx error
-// codes to the sentinels above before they reach the service layer:
+// Future Postgres mapping (add next to MapDBError when pgx is adopted):
 //
 //	pgerrcode.UniqueViolation      → errs.ErrDuplicateKey
 //	pgerrcode.ForeignKeyViolation  → errs.ErrDBConstraint
 //	pgerrcode.CheckViolation       → errs.ErrDBConstraint
 //	pgx.ErrNoRows                  → errs.ErrRecordNotFound
 //	context.DeadlineExceeded       → errs.ErrDBTimeout
-//	IsDBUnavailable(err)           → errs.ErrDBUnavailable
+//	*pgconn.ConnectError           → errs.ErrDBUnavailable
