@@ -7,8 +7,11 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/knadh/koanf/providers/confmap v1.0.0
 	github.com/knadh/koanf/v2 v2.3.5
+	github.com/redis/go-redis/extra/redisotel/v9 v9.21.0
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.11.1
+	github.com/wneessen/go-mail v0.8.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	go.opentelemetry.io/contrib/bridges/otelzerolog v0.0.0-20240809024635-0c3fcdf3c470
 	go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/v2/mongo/otelmongo v0.0.0-20260721191110-8ccc92cd17a4
@@ -42,6 +45,7 @@ require (
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/redis/go-redis/extra/rediscmd/v9 v9.21.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
@@ -52,6 +56,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.1-0.20260625150014-c84013202f01 // indirect
 	go.opentelemetry.io/otel/trace v1.44.1-0.20260625150014-c84013202f01 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
