@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hritul2/goboiler/internal/db"
 	"github.com/hritul2/goboiler/internal/logger"
 	"github.com/hritul2/goboiler/internal/observability"
 	"github.com/hritul2/goboiler/internal/utils/config"
@@ -19,6 +20,7 @@ type app struct {
 	log      zerolog.Logger
 	logClose func() error
 	obs      *observability.Provider
+	db       db.Database
 }
 
 func main() {
@@ -58,6 +60,15 @@ func start(cfg *config.Config) (*app, error) {
 	// Bridge zerolog into the OTel Logs signal.
 	a.log = a.log.Hook(obs.ZerologHook())
 
+	// DB init comes after observability so the otelmongo command monitor
+	// picks up the global tracer provider. Init pings with its own 5s
+	// deadline — hard fail on an unreachable deployment.
+	database, err := db.Init(context.Background(), cfg, a.log)
+	if err != nil {
+		return a, err
+	}
+	a.db = database
+
 	return a, nil
 }
 
@@ -67,6 +78,12 @@ func stop(a *app) {
 	timeout := time.Duration(a.cfg.ServerConfig.ShutdownTimeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	if a.db != nil {
+		if err := a.db.Close(ctx); err != nil {
+			a.log.Error().Err(err).Msg("db shutdown error")
+		}
+	}
 
 	if a.obs != nil {
 		if err := a.obs.Shutdown(ctx); err != nil {
