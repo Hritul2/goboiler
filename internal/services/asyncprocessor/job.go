@@ -18,9 +18,12 @@
 // having already hard-failed against the same address earlier in boot.
 //
 // The real end-to-end path (Start against a live Redis, task dispatch
-// through the running server) is integration-verified manually via the
-// local docker compose stack, not unit tested — same trade-off documented
-// in internal/repo for *mongo.Collection.
+// through the running server, and the Inspector's DLQ-read queries) is
+// integration-verified manually via the local docker compose stack, not
+// unit tested — same trade-off documented in internal/repo for
+// *mongo.Collection. NewInspectorFromRedisClient doesn't dial eagerly (it's
+// a plain wrapper), so Init's construction of it carries no extra risk
+// beyond what already applies to the untested happy path above.
 package asyncprocessor
 
 import (
@@ -36,11 +39,14 @@ import (
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
 
-// JobService owns the asynq client (for enqueuing) and server (for
-// consuming), both built on the shared redis.Get() connection.
+// JobService owns the asynq client (for enqueuing), server (for consuming),
+// and inspector (for reading queue/task state, e.g. the DLQ), all built on
+// the shared redis.Get() connection.
 type JobService struct {
-	Client *asynq.Client
-	server *asynq.Server
+	Client    *asynq.Client
+	server    *asynq.Server
+	inspector *asynq.Inspector
+	log       zerolog.Logger
 }
 
 var (
@@ -83,6 +89,7 @@ func Init(ctx context.Context, cfg *config.Config, log zerolog.Logger, router *R
 		Queues:          queues(),
 		ShutdownTimeout: time.Duration(cfg.ServerConfig.ShutdownTimeout) * time.Second,
 	})
+	inspector := asynq.NewInspectorFromRedisClient(rdb)
 
 	if err := server.Start(router.mux); err != nil {
 		return nil, fmt.Errorf("job: start server: %w", err)
@@ -90,7 +97,7 @@ func Init(ctx context.Context, cfg *config.Config, log zerolog.Logger, router *R
 
 	log.Info().Msg("job service started")
 
-	instance = &JobService{Client: client, server: server}
+	instance = &JobService{Client: client, server: server, inspector: inspector, log: log}
 	return instance, nil
 }
 
@@ -113,6 +120,8 @@ func Get() *JobService {
 // shared connection). The ctx parameter keeps the signature symmetric with
 // db.Close/redis.Close; asynq's own Shutdown takes none.
 func (j *JobService) Close(_ context.Context) error {
+	j.log.Info().Msg("job service shutting down")
 	j.server.Shutdown()
+	j.log.Info().Msg("job service shut down")
 	return nil
 }

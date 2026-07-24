@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/redis/go-redis/extra/redisotel/v9"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/hritul2/goboiler/internal/utils/config"
