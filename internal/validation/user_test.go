@@ -25,7 +25,7 @@ func TestUserCreateSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := Validate(UserCreateSchema, &tt.in)
+			errs := Validate(&tt.in)
 			if tt.wantField == "" {
 				assert.False(t, errs.HasErrors(), "expected no errors, got %v", errs)
 				return
@@ -49,7 +49,7 @@ func TestUserUpdateSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := Validate(UserUpdateSchema, &tt.in)
+			errs := Validate(&tt.in)
 			if tt.wantField == "" {
 				assert.False(t, errs.HasErrors())
 				return

@@ -1,17 +1,22 @@
-// Package validation is the application's Zod-equivalent schema validator,
-// built on github.com/Oudwins/zog. Shape keys use lowercase-first field
-// names (e.g. "email", not "Email") — zog upper-cases only the first byte
-// before binding to the Go struct field via reflection, but preserves the
-// original key for the issue path, so lowercase keys read as friendlier
-// error map keys ("email: ..." not "Email: ...").
+// Package validation is the application's single validation layer, built on
+// github.com/go-playground/validator/v10. Callers tag their input structs
+// with `validate:"..."` rules and pass a pointer to Validate; failures are
+// returned as an Errors map keyed by the lowercased Go struct field name
+// (e.g. "email", not "Email") so the map-key convention matches existing
+// callers/tests.
 package validation
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
-	zog "github.com/Oudwins/zog"
+	"github.com/go-playground/validator/v10"
 )
+
+// validate is the package-wide validator instance, built once (reflection
+// caching makes construction relatively expensive) and safe for concurrent use.
+var validate = validator.New()
 
 // Errors maps a field name to its validation messages.
 type Errors map[string][]string
@@ -37,12 +42,41 @@ func (e Errors) HasErrors() bool {
 	return len(e) > 0
 }
 
-// Validate runs schema against dataPtr and returns the per-field errors, or
-// a nil Errors (HasErrors() == false) when validation passes.
-func Validate(schema *zog.StructSchema, dataPtr any) Errors {
-	issues := schema.Validate(dataPtr)
-	if len(issues) == 0 {
+// Validate runs go-playground/validator's `validate:"..."` struct-tag rules
+// against dataPtr (a pointer to a tagged struct) and returns the per-field
+// errors, or a nil Errors (HasErrors() == false) when validation passes.
+func Validate(dataPtr any) Errors {
+	err := validate.Struct(dataPtr)
+	if err == nil {
 		return nil
 	}
-	return zog.Issues.Flatten(issues)
+
+	ve, ok := err.(validator.ValidationErrors)
+	if !ok {
+		return Errors{"_error": {err.Error()}}
+	}
+
+	errs := make(Errors, len(ve))
+	for _, fe := range ve {
+		key := strings.ToLower(fe.Field())
+		errs[key] = append(errs[key], tagMessage(fe))
+	}
+	return errs
+}
+
+// tagMessage renders a human-readable message for the tags this application
+// currently uses, falling back to a generic message for any other tag.
+func tagMessage(fe validator.FieldError) string {
+	switch fe.Tag() {
+	case "required":
+		return "is required"
+	case "email":
+		return "must be a valid email address"
+	case "min":
+		return fmt.Sprintf("must be at least %s characters", fe.Param())
+	case "max":
+		return fmt.Sprintf("must be at most %s characters", fe.Param())
+	default:
+		return fmt.Sprintf("failed '%s' validation", fe.Tag())
+	}
 }

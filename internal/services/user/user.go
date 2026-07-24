@@ -54,7 +54,7 @@ func (s *UserService) Create(ctx context.Context, in validation.UserCreateInput)
 	ctx, span := tracer.Start(ctx, "UserService.Create")
 	defer span.End()
 
-	if verrs := validation.Validate(validation.UserCreateSchema, &in); verrs.HasErrors() {
+	if verrs := validation.Validate(&in); verrs.HasErrors() {
 		err := errs.BadRequest(verrs.Error())
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -159,7 +159,7 @@ func (s *UserService) Update(ctx context.Context, id bson.ObjectID, in validatio
 	ctx, span := tracer.Start(ctx, "UserService.Update")
 	defer span.End()
 
-	if verrs := validation.Validate(validation.UserUpdateSchema, &in); verrs.HasErrors() {
+	if verrs := validation.Validate(&in); verrs.HasErrors() {
 		err := errs.BadRequest(verrs.Error())
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

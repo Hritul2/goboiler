@@ -3,7 +3,6 @@ package validation
 import (
 	"testing"
 
-	zog "github.com/Oudwins/zog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,20 +22,20 @@ func TestErrors_HasErrors(t *testing.T) {
 	assert.True(t, Errors{"name": {"is required"}}.HasErrors())
 }
 
-var testSchema = zog.Struct(zog.Shape{
-	"name": zog.String().Min(2).Required(),
-})
-
 func TestValidate(t *testing.T) {
 	t.Run("valid_returns_nil", func(t *testing.T) {
-		data := struct{ Name string }{Name: "Ada"}
-		errs := Validate(testSchema, &data)
+		data := struct {
+			Name string `validate:"required,min=2"`
+		}{Name: "Ada"}
+		errs := Validate(&data)
 		assert.False(t, errs.HasErrors())
 	})
 
 	t.Run("invalid_returns_field_errors", func(t *testing.T) {
-		data := struct{ Name string }{Name: ""}
-		errs := Validate(testSchema, &data)
+		data := struct {
+			Name string `validate:"required,min=2"`
+		}{Name: ""}
+		errs := Validate(&data)
 		require.True(t, errs.HasErrors())
 		assert.Contains(t, errs, "name")
 	})

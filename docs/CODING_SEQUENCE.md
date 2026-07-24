@@ -289,20 +289,28 @@ Each layer only imports from layers above it in this list.
 
 ## 14. Validation Utils
 `internal/validation/validation.go`
-- The reference implementation actually uses `go-playground/validator`
-  (struct tags), not a true schema validator — if you want a real
-  "Zod for Go" equivalent (fluent chainable schemas, e.g.
-  `zog.String().Email().Required()`), pick a dedicated library
-  (e.g. `github.com/Oudwins/zog`) rather than assuming the reference's
-  approach is what "zod equivalent" means.
+- The project briefly ran two validation libraries — `go-playground/validator`
+  for boot-time config and `github.com/Oudwins/zog` (a "Zod for Go" schema
+  builder) for request/service input — and consolidated on
+  `go-playground/validator` alone for both, to avoid maintaining two
+  different validation idioms in one codebase. Request/service input structs
+  are tagged directly (`validate:"required,email"`,
+  `validate:"required,min=2,max=100"`, etc.) instead of being paired with a
+  separate `zog.Struct(zog.Shape{...})` schema variable — one struct now
+  fully describes both shape and constraints, matching the config-validation
+  convention already in `internal/utils/config`.
 - Keep validation errors as a small package-local type (e.g. `Errors
   map[string][]string`) rather than extending the core `errors` package —
   the validation library's issue shape is its own concern; translate to
   `errs.BadRequest(...)` only at the call site (service today, handlers
-  later at step 18).
-- `internal/validation/<domain>.go` — one schema + input struct pair per
-  domain (e.g. `UserCreateSchema`/`UserCreateInput`), imported directly by
-  the matching service as its method parameter type — no duplicate DTO.
+  later at step 18). `Validate(dataPtr any) Errors` builds this map from
+  `validator.ValidationErrors`, keyed by the **lowercased** Go struct field
+  name (e.g. `"email"`, not `"Email"`) so error-map keys read the same as
+  they would in a JSON request body.
+- `internal/validation/<domain>.go` — one tagged input struct per domain
+  (e.g. `UserCreateInput`/`UserUpdateInput`), imported directly by the
+  matching service as its method parameter type — no duplicate DTO, no
+  separate schema variable.
 - Depends on nothing internal (or just errors)
 
 ## 15. Services
