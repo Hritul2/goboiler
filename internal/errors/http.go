@@ -45,18 +45,24 @@ func HTTPStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
-// --- Echo custom error handler (wired in step 17, internal/middleware/global.go) ---
+// --- gin error handling (wired in step 17, internal/middleware/{recover,error_handler}.go) ---
 //
 // This package stays framework-agnostic. The middleware layer imports it
-// (aliased as errs) and registers the handler on the Echo instance:
+// (aliased as errs) in two places:
 //
-//	e.HTTPErrorHandler = func(err error, c echo.Context) {
-//	    if c.Response().Committed {
-//	        return
-//	    }
-//	    appErr := errs.FromError(err)
-//	    _ = c.JSON(errs.HTTPStatus(appErr), appErr.ToResponse())
-//	}
+//   - error_handler.go: gin's idiomatic c.Errors accumulation pattern —
+//     after c.Next(), if a handler called c.Error(err) and nothing has
+//     written a response yet, convert the last accumulated error:
 //
-// The Committed guard prevents a double-write when a handler already sent a
-// partial response before returning an error.
+//	appErr := errs.FromError(c.Errors.Last().Err)
+//	c.JSON(errs.HTTPStatus(appErr), appErr.ToResponse())
+//
+//   - recover.go: a panic must produce the same shape, not gin's default
+//     plaintext body:
+//
+//	appErr := errs.Internal(fmt.Errorf("panic: %v", r))
+//	c.AbortWithStatusJSON(errs.HTTPStatus(appErr), appErr.ToResponse())
+//
+// The `!c.Writer.Written()` guard in error_handler.go prevents a double-write
+// when a handler already sent a partial response before returning an error —
+// gin's equivalent of Echo's Response().Committed check.

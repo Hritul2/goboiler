@@ -15,11 +15,11 @@ func TestConstructors(t *testing.T) {
 	sentinel := stderrors.New("root cause")
 
 	tests := []struct {
-		name       string
-		err        *errs.AppError
-		wantCode   string
-		wantStatus int
-		wantMsg    string
+		name        string
+		err         *errs.AppError
+		wantCode    string
+		wantStatus  int
+		wantMsg     string
 		hasInternal bool
 	}{
 		{
@@ -85,6 +85,13 @@ func TestConstructors(t *testing.T) {
 			wantCode:   errs.CodeServiceUnavailable,
 			wantStatus: http.StatusServiceUnavailable,
 			wantMsg:    "down for maintenance",
+		},
+		{
+			name:       "PayloadTooLarge",
+			err:        errs.PayloadTooLarge("request body too large"),
+			wantCode:   errs.CodePayloadTooLarge,
+			wantStatus: http.StatusRequestEntityTooLarge,
+			wantMsg:    "request body too large",
 		},
 	}
 
@@ -262,4 +269,3 @@ func TestRedisSentinels(t *testing.T) {
 		})
 	}
 }
-

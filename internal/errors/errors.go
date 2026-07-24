@@ -26,6 +26,7 @@ const (
 	CodeUnprocessable      = "UNPROCESSABLE"
 	CodeTooManyRequests    = "TOO_MANY_REQUESTS"
 	CodeServiceUnavailable = "SERVICE_UNAVAILABLE"
+	CodePayloadTooLarge    = "PAYLOAD_TOO_LARGE"
 )
 
 // AppError is the application's unified error type. All layers return *AppError
@@ -101,4 +102,8 @@ func TooManyRequests(message string) *AppError {
 
 func ServiceUnavailable(message string) *AppError {
 	return &AppError{Code: CodeServiceUnavailable, Message: message, StatusCode: http.StatusServiceUnavailable}
+}
+
+func PayloadTooLarge(message string) *AppError {
+	return &AppError{Code: CodePayloadTooLarge, Message: message, StatusCode: http.StatusRequestEntityTooLarge}
 }
