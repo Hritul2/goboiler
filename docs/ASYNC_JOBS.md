@@ -204,6 +204,19 @@ These are set when the **producer** builds the task, as extra arguments to `asyn
 
 If a handler panics or returns a non-nil error and retries are exhausted, the task is archived (kept, not silently dropped) so it can be inspected later — it will not be retried again automatically.
 
+## Reading the DLQ (archived tasks)
+
+asynq's "archive" is the dead-letter-queue equivalent — tasks that exhausted their retries land there instead of disappearing. To look at what's archived:
+
+```go
+tasks, err := asyncprocessor.Get().ListArchivedTasks("default")
+for _, t := range tasks {
+    fmt.Println(t.Type, string(t.Payload), t.LastErr)
+}
+```
+
+**This is a Go-API-only capability — there is no HTTP route for it, deliberately.** Archived task payloads can contain PII (e.g. the welcome-email task's recipient address), and this codebase has no auth yet. Reading the DLQ today means writing a small script, a debug command, or a REPL-style call — not a `curl`. Once real auth exists, an admin-gated HTTP route can wrap this same method.
+
 ## Testing a handler or a producer
 
 Neither needs Redis:
@@ -228,3 +241,4 @@ You don't need to do anything special when adding a job — shutdown is handled 
 | Which job kinds exist — building handler deps + `router.Handle` calls | `internal/services/registerasynctasks.go` (`NewJobRouter`) |
 | Starting the queue with the built router | `cmd/main.go`, inside `start()` |
 | Example of a service enqueuing a task | `internal/services/user/user.go` (`enqueueWelcomeEmail`) |
+| Reading the DLQ (`ListArchivedTasks`) | `internal/services/asyncprocessor/inspector.go` |

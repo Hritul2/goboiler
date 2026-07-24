@@ -162,6 +162,16 @@ Each layer only imports from layers above it in this list.
   standalone functions and unit-test those; verify the CRUD glue itself
   against a real local instance (docker compose) rather than building a mock
   collection interface just for test purity.
+- **Observability note: deliberately no manual tracing spans or logging
+  added here.** Once step 6's driver-level auto-instrumentation
+  (`otelmongo`) is attached, every query this layer issues already gets its
+  own span with real query/collection/duration detail — a manual
+  `tracer.Start("UserRepo.Create")` wrapped around that produces a
+  redundant parent span containing exactly one child with no new
+  information. A debug log per query would fire at request volume with no
+  context this layer has that the calling service (which does log, see
+  step 15) doesn't already have. This is a deliberate choice, not an
+  oversight — don't reflexively "instrument everything."
 - Use the db package's error mapper (step 7) to map driver errors to domain
   errors before returning them
 - Depends on: db, models, errors
@@ -262,9 +272,20 @@ Each layer only imports from layers above it in this list.
   manually.
 - A consumer handler that only calls an injected interface (e.g.
   `email.Sender`) is fully unit-testable with no live Redis.
-- Depends on: config, redis. (Domains depend on *this* package's
-  `HandlerFunc`/`Router` shape to register themselves — the dependency runs
-  domain → asyncprocessor, never the other way.)
+- **`Router.Handle` wraps every registered handler in an OTel span
+  automatically** (named `"task."+taskType`), rather than leaving each
+  domain to reimplement tracing itself — this is the one generic place
+  that sees every task type, so it's the right layer for the *generic*
+  timing/pass-fail signal. **No log line** is added at this layer,
+  deliberately: a router-level "task X ran" log with no domain fields
+  would just duplicate what the domain handler already logs with actually
+  useful fields (e.g. email's `to`). Split: domain-specific log fields
+  stay at the domain level (unchanged), generic pass/fail becomes a span
+  only, at the router.
+- Depends on: config, redis, observability (for the package tracer). (Domains
+  depend on *this* package's `HandlerFunc`/`Router` shape to register
+  themselves — the dependency runs domain → asyncprocessor, never the
+  other way.)
 
 ## 14. Validation Utils
 `internal/validation/validation.go`
@@ -293,9 +314,11 @@ Each layer only imports from layers above it in this list.
   queue — under one `internal/services/` tree, one subpackage per concern,
   with a top-level `services.go` aggregator importing each subpackage. This
   also absorbed the stale, never-implemented `internal/services/{authc,
-  authz,opentelemetry,server}` scaffold slots that predated this step —
-  `opentelemetry`/`server` were already superseded by `internal/observability`
-  and the future step-16 `internal/server`.
+  authz,opentelemetry}` scaffold slots that predated this step —
+  `opentelemetry` was superseded by `internal/observability`.
+  `internal/services/server` (also a pre-existing stale slot) turned out
+  **not** to be stale after all — step 16's Server struct is the thing that
+  finally landed there, by deliberate choice, not accident.
 - Business logic — call repos, enqueue jobs, send emails
 - One subpackage per domain
 - Depend on repo **interfaces** (never concrete driver types) and narrow
@@ -305,42 +328,231 @@ Each layer only imports from layers above it in this list.
   method that enqueues work is untestable without live Redis. The real
   wiring site (step 16) still passes the singleton's client into the
   constructor; the service itself never imports the singleton accessor.
-- Depends on: repos, job client, email client, validation, errors
+- **Observability note**: each domain service gets a package-level tracer
+  (`otel.Tracer("import/path")`) and wraps every public method in a span.
+  Logging level is a deliberate split, not applied uniformly: mutations
+  (create/update/delete) get both a success-info and a failure-error log —
+  low-frequency, high-value audit trail. Reads (get/list) get
+  **error-only** logging — an info line per read is volume with no
+  operational value beyond what the span already gives for free
+  (duration, pass/fail, correlation). A login failure is logged at `Warn`,
+  not `Error` — a bad password is client-caused, not an application fault;
+  a successful login isn't logged beyond the span, matching the
+  reads-are-quiet default. Restated: logging is for "things a human wants
+  to grep," tracing is for "the shape of things over time" — don't reach
+  for the same tool for both.
+- Depends on: repos, job client, email client, validation, errors,
+  observability (for the tracer)
 
 ## 16. Server Struct
-`internal/server/server.go`
-- The central wiring struct: holds DB, Redis, Job, Logger, Config, OTel
-- `New()` initialises and returns it
-- `Shutdown()` tears everything down in reverse order
-- Depends on: db, redis, job, logger, config, observability
+`internal/services/server/server.go`
+- HTTP framework: **gin**, not Echo — the doc originally assumed Echo (see
+  step 17's `otelecho` line, now stale); gin was the actual choice made.
+- Naming note: the server struct is **the one deliberate exception** to
+  "handlers/routes/middleware live in top-level `internal/`, not
+  `internal/services/`" — the *Server struct itself* is a service (it
+  owns the HTTP server's lifecycle, same shape as `db`/`redis`/
+  `asyncprocessor` owning theirs), so it lives at
+  `internal/services/server/server.go`. The handlers/router/middleware it
+  wires do **not** move under `services/` with it — they stay top-level
+  (steps 17–19 below), imported by the server struct, never the reverse.
+- Thin fields — holds only what `Shutdown` needs (`*http.Server`, a
+  logger). Repos, domain services, handlers, and the router are **local
+  to `New`**, not stored on the struct — nothing outside construction
+  needs to reach them once the `*gin.Engine` is wired into
+  `http.Server.Handler`. This is where `repo.NewRepositories(ctx)` and
+  `services.NewServices(repos, asyncprocessor.Get().Client, log)` are
+  first actually called — main.go didn't reach them before this step.
+- `New(ctx, cfg, log) (*Server, error)` builds everything but does **not**
+  start listening. A separate `Start() <-chan error` does — split
+  deliberately from step 13's "do everything in `Init`" precedent,
+  because `http.Server.ListenAndServe` is itself blocking (unlike
+  `asynq.Server.Start`, already non-blocking), so the caller needs the
+  constructed `*Server` back before deciding how to run the listen
+  goroutine and log its terminal error.
+- `Shutdown(ctx) error` calls `httpServer.Shutdown(ctx)` only — does not
+  touch db/redis/job, which stay owned by main.go's existing singletons
+  and teardown order.
+- Depends on: db, redis, job (via `asyncprocessor.Get().Client` for the
+  `Enqueuer`), repo, services, router, handler, middleware, config,
+  logger, observability
 
 ## 17. Middleware
-`internal/middleware/global.go` — CORS, secure headers, recover, request logger, error handler
-`internal/middleware/request_id.go`
-`internal/middleware/tracing.go` — `otelecho` wiring
-`internal/middleware/auth.go` — JWT validation
-`internal/middleware/context.go` — attach logger + request ID to ctx
-`internal/middleware/rate_limit.go`
-`internal/middleware/middlewares.go` — aggregate struct
-- Depends on: server, errors
+`internal/middleware/cors.go` — hand-rolled (not `gin-contrib/cors`).
+Config-driven via `CORSSettings{AllowedOrigins, AllowedMethods,
+AllowedHeaders, AllowCredentials, MaxAgeSeconds}`, itself built from
+`cfg.ServerConfig` — origins, methods, headers, and max-age are no longer
+hardcoded. `AllowCredentials` is deliberately **not** defaulted in
+`setDefaults` (a bool's zero value is indistinguishable from "unset", so
+defaulting it to `true` would silently override an explicit `false` in a
+user's config) — its natural Go zero value (`false`) is the secure default.
+`internal/middleware/secure_headers.go`
+`internal/middleware/request_id.go` — reuses `google/uuid` (already an
+indirect dependency elsewhere); respects an inbound `X-Request-Id` before
+generating one.
+`internal/middleware/tracing.go` — `otelgin` wiring (not `otelecho` — gin,
+not Echo). HTTP-layer metrics are deliberately **not** added on top of this
+— otelgin already emits request duration/size automatically; a custom
+counter here would double-count. Same reasoning applies to Redis
+(`redisotel` already covers it) — custom metrics were added only where no
+automatic instrumentation exists: `asyncprocessor`, `internal/lib/email`,
+`internal/repo` (step 6/8/11's package doc comments state this explicitly).
+`internal/middleware/context.go` — per-request logger injection: request ID
+always, `trace_id`/`span_id` chained on when a valid span is active (guarded
+so a no-op tracer in dev doesn't emit an all-zero trace ID).
+`internal/middleware/request_logger.go` — the actual access-log line
+(method/path/status/duration_ms/request_id), separated from `context.go`'s
+injector since "inject a logger" and "emit one access-log line" are
+different concerns even though BOOT_SEQUENCE.md's step 10 lists them
+adjacently.
+`internal/middleware/recover.go` — **custom, not `gin.Recovery()`**: gin's
+default writes a plaintext panic body, which would break the uniform JSON
+`{code,message}` shape every other error path produces via
+`errs.ToResponse()`. Builds `errs.Internal(...)` and responds with the same
+shape a normal error would.
+`internal/middleware/error_handler.go` — gin's idiomatic `c.Errors`
+accumulation pattern, converted via `errs.FromError`/`HTTPStatus`. Also
+detects `*http.MaxBytesError` via `errors.As` and maps it to
+`errs.PayloadTooLarge(...)` → 413, ahead of the generic fallback.
+`internal/middleware/max_size.go` — `MaxReqResSize(maxReqBytes,
+maxResBytes int64)` is the top-level global request-size guard:
+request-side is hard-enforced (413 via `http.MaxBytesReader`); response-side
+is observability-only (a warning log if `c.Writer.Size()` exceeds the
+threshold after `c.Next()` — never truncated, since corrupting an
+already-partially-written JSON response is worse than serving it large).
+`MaxReqResSizeOverride(maxReqBytes int64)` lets a route/group raise or lower
+the request limit: naively nesting a second `http.MaxBytesReader` inside the
+global one does **not** let a larger outer limit win (the inner reader still
+errors first), so the global middleware stashes the pristine,
+pre-wrap `Body` on the gin context before wrapping, and the override
+middleware re-wraps that stashed original fresh with its own limit —
+required, not stylistic (see `max_size_test.go`'s
+`TestMaxReqResSizeOverride_RaisesLimit`, which would fail under naive
+nesting).
+`internal/middleware/rate_limit.go` — `RateLimit(perMinute, burst int)`, a
+per-IP token bucket via `golang.org/x/time/rate` (already an indirect
+dependency via asynq, promoted to direct — no new dependency cost), keyed
+by `c.ClientIP()`. A background goroutine evicts entries idle longer than
+10 minutes to bound memory under many unique IPs. Exceeding the limit →
+429 via `errs.TooManyRequests(...)`.
+`internal/middleware/middlewares.go` — a plain `[]gin.HandlerFunc`-returning
+function. Mount order: CORS → MaxReqResSize → RateLimit → secure headers →
+request ID → tracing → logger injector → access log → recover → error
+handler — CORS and the size/rate guards mount first so bad requests are
+rejected as cheaply as possible, before any real work happens.
+- **Auth is still absent, deliberately** — no auth story exists yet
+  (`AuthConfig` in config is unused). Rate limiting, previously deferred, is
+  now implemented (above).
+- Depends on: config, errors, logger, observability (for the global tracer
+  otelgin attaches to)
 
 ## 18. Handlers
-`internal/handler/<domain>.go`
-`internal/handler/handlers.go`
-`internal/handler/health.go`
-- Parse + validate request → call service → write response
-- Depends on: services, errors, validation
+`internal/handler/health.go` — `HealthHandler{db, redis Pinger, log}`
+(constructor-injected, not global `Get()` calls — matches the project's
+anti-global-in-testable-code pattern already used for `UserService`).
+`Ping` pings both db and redis (2s deadline) and returns
+`{"status":"ok"|"degraded","checks":{"db":"ok"|"down","redis":"ok"|"down"}}`,
+200 if both healthy, 503 otherwise. No job-queue check — asynq has no
+`Ping` equivalent, and the queue rides on the same Redis connection already
+being checked, so a separate check would be redundant.
+`internal/handler/handlers.go` — aggregate, mirrors `services.Services`'s
+shape; has a `Health` field today, ready for a `User` field once User HTTP
+endpoints land (deliberately not built this pass — see step 19's routing
+note).
+- Depends on: db, redis (for the `Pinger` interface satisfied structurally
+  by both), errors (no domain handlers yet, so no `services`/`validation`
+  dependency in practice today)
 
 ## 19. Router
 `internal/router/router.go`
-- Mount middlewares in order (see BOOT_SEQUENCE.md step 10)
-- Register all routes
-- Depends on: server, handlers, middleware, services
+- `gin.New()`, not `gin.Default()` — the latter's built-in
+  `Logger()`/`Recovery()` would double-log every request and reintroduce
+  the plaintext-panic-body problem step 17's custom `Recover` exists to
+  avoid.
+- `gin.SetMode(...)` is now called before `gin.New()`, mapped from
+  `cfg.AppConfig.Env` (`internal/router/mode.go`'s `ginMode`):
+  `prod`/`stage` → `gin.ReleaseMode`, anything else → `gin.DebugMode`.
+  Previously never called at all (always ran in debug mode, printing
+  gin's unstructured startup warnings regardless of environment).
+- Mounts `GET /ping` **outside any group** (a bare liveness route, not
+  versioned) and an `/api/v1` route group that is **intentionally empty**
+  this pass — it exists and inherits the full middleware stack, proving the
+  scaffolding works, but carries no real routes yet. User CRUD/signup
+  endpoints are future work, gated on deciding what needs auth first.
+- Depends on: handler, middleware, config, logger
 
 ## 20. main.go
 `cmd/<appname>/main.go`
-- Wire it all: config → logger → otel → server.New() → repos → services → handlers → router → http.Server → graceful shutdown
-- Sequence mirrors BOOT_SEQUENCE.md exactly
+- Wire it all: config → `cfg.PrintConfig()` (secrets already masked by
+  `maskSecret` — safe to print early in boot for operational visibility) →
+  logger → otel → db → redis → job router (`services.NewJobRouter`) →
+  asyncprocessor → `server.New()` (which itself builds repos → services →
+  handlers → router) → `server.Start()` → **block on SIGINT/SIGTERM** →
+  graceful shutdown.
+- The blocking wait on a signal is the one genuinely new piece of behavior
+  here: before this step, `main()` never blocked on anything — it logged
+  "application started" and returned immediately, tearing everything back
+  down via the deferred teardown before any server had ever served a
+  request. `signal.Notify` + a blocking channel receive is what makes
+  BOOT_SEQUENCE.md step 12's "Graceful Shutdown (on SIGINT)" real for the
+  first time.
+- Sequence mirrors BOOT_SEQUENCE.md exactly.
+
+## 21. Custom Metrics (asyncprocessor, email, repo)
+
+Each package that has no automatic OTel instrumentation gets a package-level
+`meter`, mirroring the existing `tracer` convention (one per package, keyed
+by import path). **UserService is excluded, for now** — instruction was to
+close the infra-layer gap first, not to instrument the demo service.
+
+- `internal/services/asyncprocessor/router.go` (`instrumentedHandler`,
+  wrapping every registered task handler): `task.processed` counter
+  (`task_type`, `status=ok|error`), `task.duration_ms` histogram
+  (`task_type`).
+- `internal/lib/email/tasks.go` (`NewWelcomeEmailHandler`): `email.sent`
+  counter, `email.failed` counter (`reason=unmarshal|send`).
+- `internal/repo/user.go` (`instrumentOperation`, wrapping every CRUD
+  method): `repo.operation` counter (`operation`, `status=ok|error`),
+  `repo.operation.duration_ms` histogram (`operation`). The package doc now
+  states both halves of the tradeoff explicitly: no manual tracing/logging
+  (otelmongo already traces every query) but metrics *are* added (no
+  automatic per-operation Mongo metrics exist, unlike tracing).
+
+**Explicitly excluded, with reasoning in-code**: HTTP layer (otelgin
+already covers request duration/size) and Redis (`redisotel` already
+covers it) — adding custom metrics there would double-count.
+
+**Testing note**: package-level OTel instruments bind to the *first* real
+`MeterProvider` ever installed via `otel.SetMeterProvider` — a later,
+separate `SetMeterProvider` call in a different test function does not
+rebind them. Each package's metrics therefore get **one** test exercising
+every code path that records a metric (success and failure) against a
+single `sdkmetric.NewManualReader()`-backed provider, not one test per
+path.
+
+## 22. DLQ Read (Go API only)
+
+`internal/services/asyncprocessor/inspector.go` —
+`(*JobService).ListArchivedTasks(queue string) ([]*asynq.TaskInfo, error)`,
+built on `asynq.NewInspectorFromRedisClient(redis.Get().Client())` (reuses
+the shared connection, no new pool — same principle as the client/server
+construction in step 13). asynq's "archive" is its dead-letter-queue
+equivalent.
+
+**Deliberately no HTTP route**: archived-task payloads may contain PII
+(e.g. the welcome-email task's recipient address) and this codebase has no
+auth yet. Wire an HTTP route once auth lands, gated appropriately.
+
+## 23. Lint + Format Pre-Commit Workflow
+
+`.golangci.yml` (repo root) — `govet`, `staticcheck`, `errcheck`, `unused`.
+`.githooks/pre-commit` — gofmt check → `go vet ./...` → `golangci-lint run`;
+degrades gracefully with an install link if `golangci-lint` isn't on PATH,
+rather than a cryptic "command not found". Activated per-clone via
+`make install-hooks` (`git config core.hooksPath .githooks` — native git,
+no Python `pre-commit`/`lefthook` framework needed for a pure-Go repo).
+`Makefile` also gains `lint` and `fmt-check` targets for running the same
+checks outside the hook (CI, manual use).
 
 ---
 
@@ -366,9 +578,16 @@ config
 ```
 
 Note: `email` and `services/asyncprocessor` have no edge between them — neither
-imports the other. main.go (the composition root, future server struct) is
+imports the other. `internal/services.NewJobRouter` (not main.go directly) is
 where they meet: it builds an `email.Sender`, registers
 `email.NewWelcomeEmailHandler(sender, log)` against an
-`asyncprocessor.Router` for `email.TaskWelcomeEmail`, then passes that
-router into `asyncprocessor.Init`. A future job kind follows the same shape
-without touching either existing package.
+`asyncprocessor.Router` for `email.TaskWelcomeEmail`, then hands that
+router to main.go, which passes it into `asyncprocessor.Init`. A future job
+kind follows the same shape without touching either existing package.
+
+Note: `handler`/`router`/`middleware` are top-level `internal/` packages,
+**not** under `internal/services/` — the one exception living in
+`services/` is the `server` struct itself (step 16), which imports all
+three (plus `repo`/`services`/`asyncprocessor`) to build the `*gin.Engine`
+and `*http.Server`. `main.go` calls `server.New`/`Start`/`Shutdown`; it
+never touches `handler`/`router`/`middleware` directly.
