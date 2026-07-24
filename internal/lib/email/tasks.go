@@ -8,6 +8,26 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+)
+
+// meter is the package-level instrumentation handle, following
+// internal/observability's documented convention (one per package, keyed by
+// import path). Reusable if a second email task is ever added — the
+// "reason" attribute distinguishes failure causes across task kinds.
+var (
+	meter = otel.Meter("github.com/hritul2/goboiler/internal/lib/email")
+
+	emailSentCounter, _ = meter.Int64Counter(
+		"email.sent",
+		metric.WithDescription("Total emails successfully sent"),
+	)
+	emailFailedCounter, _ = meter.Int64Counter(
+		"email.failed",
+		metric.WithDescription("Total email send failures, by reason"),
+	)
 )
 
 // TaskWelcomeEmail is the asynq task type for the post-signup welcome email.
@@ -52,15 +72,20 @@ func NewWelcomeEmailHandler(sender Sender, log zerolog.Logger) func(ctx context.
 	return func(ctx context.Context, t *asynq.Task) error {
 		var p WelcomeEmailPayload
 		if err := json.Unmarshal(t.Payload(), &p); err != nil {
-			return fmt.Errorf("email: unmarshal welcome email payload: %w", err)
+			wrapped := fmt.Errorf("email: unmarshal welcome email payload: %w", err)
+			log.Error().Err(wrapped).Msg("failed to unmarshal welcome email payload")
+			emailFailedCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", "unmarshal")))
+			return wrapped
 		}
 
 		if err := SendWelcome(ctx, sender, p.To, p.Name); err != nil {
 			log.Error().Err(err).Str("to", p.To).Msg("failed to send welcome email")
+			emailFailedCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", "send")))
 			return err
 		}
 
 		log.Info().Str("to", p.To).Msg("sent welcome email")
+		emailSentCounter.Add(ctx, 1)
 		return nil
 	}
 }

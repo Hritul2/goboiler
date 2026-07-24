@@ -7,8 +7,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hritul2/goboiler/internal/utils/config"
 	th "github.com/hritul2/goboiler/internal/testing"
+	"github.com/hritul2/goboiler/internal/utils/config"
 )
 
 func TestBuildMsg(t *testing.T) {

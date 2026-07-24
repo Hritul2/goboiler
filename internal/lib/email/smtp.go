@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	mail "github.com/wneessen/go-mail"
 	"github.com/rs/zerolog"
+	mail "github.com/wneessen/go-mail"
 
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
@@ -72,12 +72,15 @@ func buildMsg(from, fromName string, e Email) (*mail.Msg, error) {
 func (s *smtpSender) Send(ctx context.Context, e Email) error {
 	msg, err := buildMsg(s.from, s.fromName, e)
 	if err != nil {
+		s.log.Error().Err(err).Strs("to", e.To).Msg("failed to build email message")
 		return err
 	}
 
 	// Error classification is the service layer's job; keep the raw cause.
 	if err := s.client.DialAndSendWithContext(ctx, msg); err != nil {
-		return fmt.Errorf("email: send: %w", err)
+		wrapped := fmt.Errorf("email: send: %w", err)
+		s.log.Error().Err(wrapped).Strs("to", e.To).Str("subject", e.Subject).Msg("failed to send email")
+		return wrapped
 	}
 
 	s.log.Info().Strs("to", e.To).Str("subject", e.Subject).Msg("email sent")
