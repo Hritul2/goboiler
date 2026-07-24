@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+# Runs before every commit once installed via `make install-hooks`
+# (git config core.hooksPath .githooks). Pure Go tooling only — no
+# framework dependency.
+set -e
+
+echo "Running gofmt..."
+UNFORMATTED=$(gofmt -l .)
+if [ -n "$UNFORMATTED" ]; then
+	echo "The following files are not gofmt'd:"
+	echo "$UNFORMATTED"
+	exit 1
+fi
+
+echo "Running go vet..."
+go vet ./...
+
+if ! command -v golangci-lint >/dev/null 2>&1; then
+	echo "golangci-lint not found on PATH — install it: https://golangci-lint.run/welcome/install/"
+	exit 1
+fi
+
+echo "Running golangci-lint..."
+golangci-lint run
