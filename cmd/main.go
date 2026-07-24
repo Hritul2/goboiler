@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -13,6 +18,7 @@ import (
 	"github.com/hritul2/goboiler/internal/redis"
 	"github.com/hritul2/goboiler/internal/services"
 	"github.com/hritul2/goboiler/internal/services/asyncprocessor"
+	"github.com/hritul2/goboiler/internal/services/server"
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
 
@@ -26,6 +32,7 @@ type app struct {
 	db       db.Database
 	redis    *redis.Redis
 	job      *asyncprocessor.JobService
+	srv      *server.Server
 }
 
 func main() {
@@ -42,6 +49,11 @@ func main() {
 	}
 
 	a.log.Info().Msg("application started")
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	a.log.Info().Str("signal", sig.String()).Msg("shutdown signal received")
 }
 
 // start initialises every dependency in order and returns the running app.
@@ -49,6 +61,8 @@ func main() {
 // was initialised before an error occurred.
 func start(cfg *config.Config) (*app, error) {
 	a := &app{cfg: cfg}
+
+	cfg.PrintConfig() // secrets already masked (see loader.go's maskSecret)
 
 	a.log, a.logClose = logger.New(&cfg.AppConfig)
 
@@ -84,18 +98,33 @@ func start(cfg *config.Config) (*app, error) {
 
 	// Job service after redis. Which task handlers exist lives in
 	// internal/services.NewJobRouter, not here — this just wires the result in.
-	router, err := services.NewJobRouter(cfg, a.log)
+	jobRouter, err := services.NewJobRouter(cfg, a.log)
 	if err != nil {
 		return a, err
 	}
 
 	// Init starts consuming — asynq.Server.Start is non-blocking, so no
 	// wrapper goroutine is needed here.
-	j, err := asyncprocessor.Init(context.Background(), cfg, a.log, router)
+	j, err := asyncprocessor.Init(context.Background(), cfg, a.log, jobRouter)
 	if err != nil {
 		return a, err
 	}
 	a.job = j
+
+	// HTTP server last — it wires repos/services/handlers/router, all of
+	// which need db/redis/job already up.
+	srv, err := server.New(context.Background(), cfg, a.log)
+	if err != nil {
+		return a, err
+	}
+	a.srv = srv
+
+	errCh := srv.Start()
+	go func() {
+		if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.log.Error().Err(err).Msg("http server failed")
+		}
+	}()
 
 	return a, nil
 }
@@ -106,6 +135,12 @@ func stop(a *app) {
 	timeout := time.Duration(a.cfg.ServerConfig.ShutdownTimeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	if a.srv != nil {
+		if err := a.srv.Shutdown(ctx); err != nil {
+			a.log.Error().Err(err).Msg("http server shutdown error")
+		}
+	}
 
 	if a.job != nil {
 		if err := a.job.Close(ctx); err != nil {
