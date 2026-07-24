@@ -16,7 +16,7 @@ func disabledCfg() *config.Config {
 	return &config.Config{
 		AppConfig: config.AppConfig{
 			Name:    "test-service",
-			Env:     "development",
+			Env:     "dev",
 			Version: "0.0.1",
 		},
 		OpenTelConfig: config.OpenTelConfig{

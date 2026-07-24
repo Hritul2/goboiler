@@ -17,7 +17,7 @@ import (
 func debugCfg() *config.AppConfig {
 	return &config.AppConfig{
 		Name:     "test-service",
-		Env:      "development",
+		Env:      "dev",
 		Version:  "0.0.1",
 		LogLevel: "debug",
 	}
@@ -26,7 +26,7 @@ func debugCfg() *config.AppConfig {
 func infoCfg() *config.AppConfig {
 	return &config.AppConfig{
 		Name:     "test-service",
-		Env:      "production",
+		Env:      "prod",
 		Version:  "0.0.1",
 		LogLevel: "info",
 	}

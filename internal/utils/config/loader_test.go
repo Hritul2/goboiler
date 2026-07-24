@@ -30,24 +30,24 @@ func validConfigJSON() map[string]any {
 		"config": map[string]any{
 			"app": map[string]any{
 				"name":      "test-app",
-				"env":       "development",
+				"env":       "dev",
 				"version":   "1.0.0",
 				"log_level": "debug",
 			},
 			"server": map[string]any{
-				"port":                  8080,
-				"read_timeout":          30,
-				"write_timeout":         30,
-				"idle_timeout":          120,
-				"shutdown_timeout":      30,
-				"cors_allowed_origins":  []string{"http://localhost:3000"},
+				"port":                 8080,
+				"read_timeout":         30,
+				"write_timeout":        30,
+				"idle_timeout":         120,
+				"shutdown_timeout":     30,
+				"cors_allowed_origins": []string{"http://localhost:3000"},
 			},
 			"db": map[string]any{
-				"uri":               "mongodb://localhost:27017",
-				"name":              "test-db",
-				"max_open_conns":    25,
-				"max_idle_conns":    10,
-				"conn_max_lifetime": 300,
+				"uri":                "mongodb://localhost:27017",
+				"name":               "test-db",
+				"max_open_conns":     25,
+				"max_idle_conns":     10,
+				"conn_max_lifetime":  300,
 				"conn_max_idle_time": 60,
 			},
 			"otel": map[string]any{
@@ -126,6 +126,13 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, "info", cfg.AppConfig.LogLevel)
 		assert.Equal(t, 1.0, cfg.OpenTelConfig.SampleRate)
 		assert.Equal(t, 30, cfg.ServerConfig.ShutdownTimeout)
+		assert.Equal(t, []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, cfg.ServerConfig.CORSAllowedMethods)
+		assert.Equal(t, []string{"Content-Type", "Authorization"}, cfg.ServerConfig.CORSAllowedHeaders)
+		assert.Equal(t, 600, cfg.ServerConfig.CORSMaxAgeSeconds)
+		assert.EqualValues(t, 2<<20, cfg.ServerConfig.MaxRequestBodyBytes)
+		assert.EqualValues(t, 10<<20, cfg.ServerConfig.MaxResponseBodyBytes)
+		assert.Equal(t, 100, cfg.ServerConfig.RateLimitPerMinute)
+		assert.Equal(t, 20, cfg.ServerConfig.RateLimitBurst)
 	})
 
 	t.Run("does_not_overwrite_set_fields", func(t *testing.T) {
@@ -133,10 +140,36 @@ func TestSetDefaults(t *testing.T) {
 		cfg.AppConfig.LogLevel = "warn"
 		cfg.OpenTelConfig.SampleRate = 0.5
 		cfg.ServerConfig.ShutdownTimeout = 60
+		cfg.ServerConfig.CORSAllowedMethods = []string{"GET"}
+		cfg.ServerConfig.CORSAllowedHeaders = []string{"X-Custom"}
+		cfg.ServerConfig.CORSMaxAgeSeconds = 42
+		cfg.ServerConfig.MaxRequestBodyBytes = 1024
+		cfg.ServerConfig.MaxResponseBodyBytes = 2048
+		cfg.ServerConfig.RateLimitPerMinute = 5
+		cfg.ServerConfig.RateLimitBurst = 2
 		setDefaults(cfg)
 		assert.Equal(t, "warn", cfg.AppConfig.LogLevel)
 		assert.Equal(t, 0.5, cfg.OpenTelConfig.SampleRate)
 		assert.Equal(t, 60, cfg.ServerConfig.ShutdownTimeout)
+		assert.Equal(t, []string{"GET"}, cfg.ServerConfig.CORSAllowedMethods)
+		assert.Equal(t, []string{"X-Custom"}, cfg.ServerConfig.CORSAllowedHeaders)
+		assert.Equal(t, 42, cfg.ServerConfig.CORSMaxAgeSeconds)
+		assert.EqualValues(t, 1024, cfg.ServerConfig.MaxRequestBodyBytes)
+		assert.EqualValues(t, 2048, cfg.ServerConfig.MaxResponseBodyBytes)
+		assert.Equal(t, 5, cfg.ServerConfig.RateLimitPerMinute)
+		assert.Equal(t, 2, cfg.ServerConfig.RateLimitBurst)
+	})
+
+	t.Run("credentials_default_to_false_secure_by_default", func(t *testing.T) {
+		// CORSAllowCredentials is deliberately NOT defaulted in setDefaults: a
+		// bool's zero value (false) is indistinguishable from "unset", so
+		// defaulting it to true here would silently override an explicit
+		// `false` in config. Leaving it at Go's natural zero value means it's
+		// closed (no credential sharing) unless a config explicitly opts in —
+		// the safer default for a boilerplate.
+		cfg := &Config{}
+		setDefaults(cfg)
+		assert.False(t, cfg.ServerConfig.CORSAllowCredentials)
 	})
 }
 
@@ -146,7 +179,7 @@ func TestLoadConfig_valid(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Equal(t, "test-app", cfg.AppConfig.Name)
-	assert.Equal(t, "development", cfg.AppConfig.Env)
+	assert.Equal(t, "dev", cfg.AppConfig.Env)
 	assert.Equal(t, "1.0.0", cfg.AppConfig.Version)
 	assert.Equal(t, "debug", cfg.AppConfig.LogLevel)
 	assert.Equal(t, 8080, cfg.ServerConfig.Port)

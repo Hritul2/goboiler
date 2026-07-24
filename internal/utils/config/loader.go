@@ -84,6 +84,29 @@ func setDefaults(cfg *Config) {
 	if cfg.ServerConfig.ShutdownTimeout == 0 {
 		cfg.ServerConfig.ShutdownTimeout = 30
 	}
+	if len(cfg.ServerConfig.CORSAllowedMethods) == 0 {
+		cfg.ServerConfig.CORSAllowedMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	}
+	if len(cfg.ServerConfig.CORSAllowedHeaders) == 0 {
+		cfg.ServerConfig.CORSAllowedHeaders = []string{"Content-Type", "Authorization"}
+	}
+	if cfg.ServerConfig.CORSMaxAgeSeconds == 0 {
+		cfg.ServerConfig.CORSMaxAgeSeconds = 600
+	}
+	// CORSAllowCredentials intentionally has no default here — see the
+	// ServerConfig doc comment.
+	if cfg.ServerConfig.MaxRequestBodyBytes == 0 {
+		cfg.ServerConfig.MaxRequestBodyBytes = 2 << 20 // 2MiB
+	}
+	if cfg.ServerConfig.MaxResponseBodyBytes == 0 {
+		cfg.ServerConfig.MaxResponseBodyBytes = 10 << 20 // 10MiB
+	}
+	if cfg.ServerConfig.RateLimitPerMinute == 0 {
+		cfg.ServerConfig.RateLimitPerMinute = 100
+	}
+	if cfg.ServerConfig.RateLimitBurst == 0 {
+		cfg.ServerConfig.RateLimitBurst = 20
+	}
 }
 
 // readConfigFile returns the raw bytes of the config file at p.
@@ -140,7 +163,15 @@ func (c *Config) PrintConfig() {
 	fmt.Printf("  write_timeout:        %d\n", c.ServerConfig.WriteTimeout)
 	fmt.Printf("  idle_timeout:         %d\n", c.ServerConfig.IdleTimeout)
 	fmt.Printf("  shutdown_timeout:     %d\n", c.ServerConfig.ShutdownTimeout)
-	fmt.Printf("  cors_allowed_origins: %v\n", c.ServerConfig.CORSAllowedOrigins)
+	fmt.Printf("  cors_allowed_origins:   %v\n", c.ServerConfig.CORSAllowedOrigins)
+	fmt.Printf("  cors_allowed_methods:   %v\n", c.ServerConfig.CORSAllowedMethods)
+	fmt.Printf("  cors_allowed_headers:   %v\n", c.ServerConfig.CORSAllowedHeaders)
+	fmt.Printf("  cors_allow_credentials: %v\n", c.ServerConfig.CORSAllowCredentials)
+	fmt.Printf("  cors_max_age_seconds:   %d\n", c.ServerConfig.CORSMaxAgeSeconds)
+	fmt.Printf("  max_request_body_bytes:  %d\n", c.ServerConfig.MaxRequestBodyBytes)
+	fmt.Printf("  max_response_body_bytes: %d\n", c.ServerConfig.MaxResponseBodyBytes)
+	fmt.Printf("  rate_limit_per_minute:   %d\n", c.ServerConfig.RateLimitPerMinute)
+	fmt.Printf("  rate_limit_burst:        %d\n", c.ServerConfig.RateLimitBurst)
 
 	fmt.Println("=== Database ===")
 	fmt.Printf("  uri:                %s\n", maskSecret(c.DbConfig.Uri))
