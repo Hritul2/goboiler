@@ -2,7 +2,15 @@ BINARY  := goboiler
 OUT_DIR := dist
 MAIN    := ./cmd
 
-.PHONY: dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover
+.PHONY: dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init
+
+# Bootstrap a new project from this boilerplate: rewrites the module path
+# (go.mod + every import) and the build binary name. Run once, right after
+# cloning/copying goboiler for a new project.
+#   make init MODULE=github.com/hritul2/fruits/apple
+init:
+	@test -n "$(MODULE)" || (echo "Usage: make init MODULE=<new-module-path>" >&2 && exit 1)
+	./scripts/init.sh $(MODULE)
 
 dev:
 	go run $(MAIN)
