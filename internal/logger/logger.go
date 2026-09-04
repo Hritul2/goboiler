@@ -14,38 +14,46 @@ import (
 // New builds a zerolog.Logger for the lifetime of the application and returns
 // a closer that must be called on shutdown to flush and release the log file.
 //
-// LogLevel=="debug" → colourised ConsoleWriter to stderr.
-// All other levels  → JSON to stderr + log/app.log.
+// Output routing is env-based, not level-based:
+//
+//   - Env=="dev"          → colourised ConsoleWriter to stdout + log/app.log.
+//   - Env=="stage"/"prod" → colourised ConsoleWriter to stdout only; the OTel
+//     logs bridge (see internal/observability) ships records to the
+//     collector directly, independent of this writer.
+//
+// LogLevel controls verbosity only (debug/info/warn/error), decoupled from
+// where output goes.
 //
 // The returned logger is pre-seeded with service, env, and version fields.
 func New(appCfg *config.AppConfig) (zerolog.Logger, func() error) {
 	zerolog.TimeFieldFormat = time.RFC3339
 
-	isDebug := appCfg.LogLevel == "debug"
+	consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
 
 	var (
-		level  zerolog.Level
 		writer io.Writer
 		closer func() error
 	)
 
-	if isDebug {
-		level = zerolog.DebugLevel
-		writer = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
-		closer = func() error { return nil }
-	} else {
-		level = zerolog.InfoLevel
+	if appCfg.Env == "dev" {
 		f, err := openLogFile("log/app.log")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warn: cannot open log file, falling back to stderr: %v\n", err)
-			writer = os.Stderr
+			fmt.Fprintf(os.Stdout, "warn: cannot open log file, falling back to stdout only: %v\n", err)
+			writer = consoleWriter
 			closer = func() error { return nil }
 		} else {
-			writer = io.MultiWriter(os.Stderr, f)
+			writer = io.MultiWriter(consoleWriter, f)
 			closer = f.Close
 		}
+	} else {
+		writer = consoleWriter
+		closer = func() error { return nil }
 	}
 
+	level, err := zerolog.ParseLevel(appCfg.LogLevel)
+	if err != nil {
+		level = zerolog.InfoLevel
+	}
 	zerolog.SetGlobalLevel(level)
 
 	log := zerolog.New(writer).
