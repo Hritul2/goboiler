@@ -1,4 +1,9 @@
+version: "2"
+
 linters:
+  # v2 default is "standard" (errcheck, govet, ineffassign, staticcheck, unused),
+  # which is the equivalent of the v1 default set (gosimple is merged into staticcheck).
+  default: standard
   enable:
     - staticcheck
     - errcheck

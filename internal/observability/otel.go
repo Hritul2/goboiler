@@ -31,22 +31,22 @@ type Provider struct {
 }
 
 // New initialises all three OTel signals (traces, metrics, logs) and registers
-// them as global providers. If cfg.OpenTelConfig.Enabled is false, no-op
+// them as global providers. If cfg.OTel.Enabled is false, no-op
 // providers are registered so callers need no conditional logic.
 func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Provider, error) {
-	if !cfg.OpenTelConfig.Enabled {
+	if !cfg.OTel.Enabled {
 		log.Info().Msg("OpenTelemetry disabled — using no-op providers")
-		return &Provider{serviceName: cfg.AppConfig.Name}, nil
+		return &Provider{serviceName: cfg.App.Name}, nil
 	}
 
-	endpoint := cfg.OpenTelConfig.Endpoint
+	endpoint := cfg.OTel.Endpoint
 
 	res, err := buildResource(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("otel resource: %w", err)
 	}
 
-	tp, err := buildTracerProvider(ctx, endpoint, cfg.OpenTelConfig.SampleRate, res)
+	tp, err := buildTracerProvider(ctx, endpoint, cfg.OTel.SampleRate, res)
 	if err != nil {
 		return nil, fmt.Errorf("otel tracer provider: %w", err)
 	}
@@ -71,14 +71,14 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Provider
 
 	log.Info().
 		Str("endpoint", endpoint).
-		Float64("sample_rate", cfg.OpenTelConfig.SampleRate).
+		Float64("sample_rate", cfg.OTel.SampleRate).
 		Msg("OpenTelemetry initialised")
 
 	return &Provider{
 		tracerProvider: tp,
 		meterProvider:  mp,
 		loggerProvider: lp,
-		serviceName:    cfg.AppConfig.Name,
+		serviceName:    cfg.App.Name,
 	}, nil
 }
 
@@ -121,9 +121,9 @@ func buildResource(ctx context.Context, cfg *config.Config) (*resource.Resource,
 		resource.WithTelemetrySDK(),
 		resource.WithHost(),
 		resource.WithAttributes(
-			semconv.ServiceName(cfg.AppConfig.Name),
-			semconv.ServiceVersion(cfg.AppConfig.Version),
-			semconv.DeploymentEnvironmentName(cfg.AppConfig.Env),
+			semconv.ServiceName(cfg.App.Name),
+			semconv.ServiceVersion(cfg.App.Version),
+			semconv.DeploymentEnvironmentName(cfg.App.Env),
 		),
 	)
 }

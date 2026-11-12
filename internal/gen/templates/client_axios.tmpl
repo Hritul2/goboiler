@@ -1,0 +1,71 @@
+{{- define "clientKindNote"}}Client kind: axios (peer dependency axios@^1). Pass your own instance via `axios` to reuse its interceptors.{{end -}}
+
+{{- define "clientImports"}}import axios from "axios"
+import type { AxiosInstance, AxiosResponse } from "axios"
+import { z } from "zod"{{end -}}
+
+{{- define "clientOptions"}}export type ClientOptions = {
+  /** Extra headers sent with every request, or a function returning them (e.g. to attach an Authorization header). */
+  headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>)
+} & (
+  | {
+      /** Origin of the API, e.g. "https://api.example.com". A trailing slash is ignored. */
+      baseURL: string
+      /** Your own axios instance (interceptors, auth, retries). Defaults to a fresh axios.create(). */
+      axios?: AxiosInstance
+    }
+  | {
+      /** Your own axios instance (interceptors, auth, retries). Its `baseURL` is used unless `baseURL` is also set. */
+      axios: AxiosInstance
+      baseURL?: string
+    }
+){{end -}}
+
+{{- define "clientTransport"}}function toApiError(status: number, body: unknown, statusText: string): ApiError {
+  const parsed = ApiErrorSchema.safeParse(body)
+  if (parsed.success) {
+    return new ApiError(status, parsed.data.code, parsed.data.message, parsed.data.fields)
+  }
+  return new ApiError(status, "UNKNOWN", statusText || `HTTP ${status}`)
+}
+
+/**
+ * Turns an axios failure into an ApiError: an HTTP error response keeps its status and body (code/message/fields);
+ * no response at all (offline, DNS, CORS, timeout) becomes status 0, code "NETWORK_ERROR".
+ * Cancellations and errors that did not come from axios are rethrown unchanged.
+ */
+function toThrown(e: unknown): unknown {
+  if (e instanceof ApiError || axios.isCancel(e) || !axios.isAxiosError(e)) {
+    return e
+  }
+  if (e.response) {
+    return toApiError(e.response.status, e.response.data, e.response.statusText)
+  }
+  return new ApiError(0, "NETWORK_ERROR", e.message || "network error")
+}
+
+export function createClient(options: ClientOptions) {
+  const instance = options.axios ?? axios.create()
+  const baseURL = options.baseURL?.replace(/\/+$/, "")
+
+  async function call<S extends z.ZodType>(path: string, input: unknown, schema: S): Promise<z.infer<S>> {
+    const extra = typeof options.headers === "function" ? await options.headers() : options.headers
+
+    let res: AxiosResponse<unknown>
+    try {
+      res = await instance.request<unknown>({
+        method: "POST",
+        url: path,
+        ...(baseURL ? { baseURL } : {}),
+        data: input,
+        headers: { ...extra, "Content-Type": "application/json" },
+        responseType: "json",
+        // Reject every non-2xx so it reaches the catch below (and the caller's
+        // response interceptors) as an AxiosError, whatever the instance default.
+        validateStatus: (status) => status >= 200 && status < 300,
+      })
+    } catch (e) {
+      throw toThrown(e)
+    }
+    return schema.parse(res.data)
+  }{{end -}}

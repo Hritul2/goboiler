@@ -47,7 +47,7 @@ func Init(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Redis, 
 		return nil, fmt.Errorf("redis: Init called more than once")
 	}
 
-	rdb := goredis.NewClient(clientOptions(&cfg.RedisConfig))
+	rdb := goredis.NewClient(clientOptions(&cfg.Redis))
 
 	if err := redisotel.InstrumentTracing(rdb); err != nil {
 		_ = rdb.Close()
@@ -68,7 +68,7 @@ func Init(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Redis, 
 		return nil, err
 	}
 
-	log.Info().Str("addr", cfg.RedisConfig.Addr).Int("db", cfg.RedisConfig.DB).Msg("redis connected")
+	log.Info().Str("addr", cfg.Redis.Addr).Int("db", cfg.Redis.DB).Msg("redis connected")
 
 	instance = r
 	return instance, nil

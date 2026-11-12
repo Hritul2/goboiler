@@ -64,7 +64,7 @@ func start(cfg *config.Config) (*app, error) {
 
 	cfg.PrintConfig() // secrets already masked (see loader.go's maskSecret)
 
-	a.log, a.logClose = logger.New(&cfg.AppConfig)
+	a.log, a.logClose = logger.New(&cfg.App)
 
 	// 5-second deadline prevents a hung OTLP dial from blocking startup.
 	initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -132,7 +132,7 @@ func start(cfg *config.Config) (*app, error) {
 // stop shuts down every started dependency in reverse order.
 // Add teardown calls here as new fields are added to app.
 func stop(a *app) {
-	timeout := time.Duration(a.cfg.ServerConfig.ShutdownTimeout) * time.Second
+	timeout := time.Duration(a.cfg.Server.ShutdownTimeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

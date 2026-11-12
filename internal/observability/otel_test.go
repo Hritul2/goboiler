@@ -14,12 +14,12 @@ import (
 
 func disabledCfg() *config.Config {
 	return &config.Config{
-		AppConfig: config.AppConfig{
+		App: config.AppConfig{
 			Name:    "test-service",
 			Env:     "dev",
 			Version: "0.0.1",
 		},
-		OpenTelConfig: config.OpenTelConfig{
+		OTel: config.OpenTelConfig{
 			Enabled:    false,
 			Endpoint:   "",
 			SampleRate: 1.0,

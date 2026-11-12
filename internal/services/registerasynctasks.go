@@ -1,11 +1,8 @@
 package services
 
 import (
-	"fmt"
-
 	"github.com/rs/zerolog"
 
-	"github.com/hritul2/goboiler/internal/lib/email"
 	"github.com/hritul2/goboiler/internal/services/asyncprocessor"
 	"github.com/hritul2/goboiler/internal/utils/config"
 )
@@ -15,14 +12,19 @@ import (
 // single place "which job kinds exist" is decided — adding a new one means
 // adding its dependency setup and one router.Handle call here, nothing in
 // cmd/main.go or internal/services/asyncprocessor itself.
+//
+// The skeleton registers no jobs: the worker still starts, and a task of an
+// unregistered type simply fails with "handler not found" (asynq retries or
+// archives it) — nothing enqueues one until you add a producer.
+//
+// ADD YOUR DOMAIN: build the dependencies your handlers need (for email:
+// `sender, err := email.New(&cfg.Email, log)`) and register each consumer
+// (`router.Handle(email.TaskWelcomeEmail, email.NewWelcomeEmailHandler(sender, log))`)
+// — see docs/EXAMPLE.md step 5.
 func NewJobRouter(cfg *config.Config, log zerolog.Logger) (*asyncprocessor.Router, error) {
-	sender, err := email.New(&cfg.EmailConfig, log)
-	if err != nil {
-		return nil, fmt.Errorf("job router: email sender: %w", err)
-	}
+	_, _ = cfg, log // used once you build handler dependencies
 
 	router := asyncprocessor.NewRouter()
-	router.Handle(email.TaskWelcomeEmail, email.NewWelcomeEmailHandler(sender, log))
 	// router.Handle(<domain>.TaskX, <domain>.NewXHandler(...))
 
 	return router, nil

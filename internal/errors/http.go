@@ -10,11 +10,16 @@ import (
 type ErrorResponse struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+
+	// Fields is present only for validation failures (see Validation): JSON
+	// field path -> messages, so a frontend can attach each message to the
+	// matching form input.
+	Fields map[string][]string `json:"fields,omitempty"`
 }
 
 // ToResponse produces the client-safe response body from an AppError.
 func (e *AppError) ToResponse() ErrorResponse {
-	return ErrorResponse{Code: e.Code, Message: e.Message}
+	return ErrorResponse{Code: e.Code, Message: e.Message, Fields: e.Fields}
 }
 
 // FromError normalises any error value into an *AppError.

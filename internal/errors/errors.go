@@ -14,6 +14,8 @@ package errors
 import (
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 const (
@@ -36,6 +38,11 @@ type AppError struct {
 	Message    string // human-readable; safe to send to clients
 	StatusCode int    // HTTP status code
 	Internal   error  // root cause; never serialised to API responses
+
+	// Fields carries per-field validation messages keyed by the request's
+	// JSON field path (e.g. "email", "address.city"). Only set by
+	// Validation; nil for every other error. Serialised as `fields`.
+	Fields map[string][]string
 }
 
 func (e *AppError) Error() string {
@@ -79,6 +86,39 @@ func BadRequest(message string) *AppError {
 
 func Conflict(message string) *AppError {
 	return &AppError{Code: CodeConflict, Message: message, StatusCode: http.StatusConflict}
+}
+
+// Validation builds the 400 BAD_REQUEST for a failed input validation. fields
+// maps a JSON field path to its messages (validation.Errors satisfies this
+// directly — this package takes a plain map so it never imports validation).
+// Message is a deterministic one-line summary ("validation failed: email:
+// ...; name: ..."); Fields is the structured form a frontend maps onto form
+// inputs. The map is copied, so later mutation by the caller cannot change
+// the error.
+func Validation(fields map[string][]string) *AppError {
+	copied := make(map[string][]string, len(fields))
+	names := make([]string, 0, len(fields))
+	for name, msgs := range fields {
+		copied[name] = append([]string(nil), msgs...)
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+": "+strings.Join(copied[name], ", "))
+	}
+
+	msg := "validation failed"
+	if len(parts) > 0 {
+		msg += ": " + strings.Join(parts, "; ")
+	}
+	return &AppError{
+		Code:       CodeBadRequest,
+		Message:    msg,
+		StatusCode: http.StatusBadRequest,
+		Fields:     copied,
+	}
 }
 
 // Internal wraps an infrastructure error as a safe 500. The root cause is stored

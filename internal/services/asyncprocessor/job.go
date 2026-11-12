@@ -87,7 +87,7 @@ func Init(ctx context.Context, cfg *config.Config, log zerolog.Logger, router *R
 	server := asynq.NewServerFromRedisClient(rdb, asynq.Config{
 		Concurrency:     10,
 		Queues:          queues(),
-		ShutdownTimeout: time.Duration(cfg.ServerConfig.ShutdownTimeout) * time.Second,
+		ShutdownTimeout: time.Duration(cfg.Server.ShutdownTimeout) * time.Second,
 	})
 	inspector := asynq.NewInspectorFromRedisClient(rdb)
 

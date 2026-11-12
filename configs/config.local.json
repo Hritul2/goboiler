@@ -1,60 +1,8 @@
 {
   "env_file_name": ".env.local",
   "config": {
-    "app": {
-      "name": "golang-boilerplate",
-      "env": ".env:APP_ENV",
-      "version": ".env:APP_VERSION",
-      "log_level": ".env:LOG_LEVEL"
-    },
     "server": {
-      "port": ".env:int:SERVER_PORT",
-      "read_timeout": 30,
-      "write_timeout": 30,
-      "idle_timeout": 120,
-      "shutdown_timeout": 30,
-      "cors_allowed_origins": ".env:array:CORS_ALLOWED_ORIGINS",
-      "cors_allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      "cors_allowed_headers": ["Content-Type", "Authorization"],
-      "cors_allow_credentials": true,
-      "cors_max_age_seconds": 600,
-      "max_request_body_bytes": 2097152,
-      "max_response_body_bytes": 10485760,
-      "rate_limit_per_minute": 100,
-      "rate_limit_burst": 20
-    },
-    "db": {
-      "uri": ".env:DATABASE_URL",
-      "name": ".env:DATABASE_NAME",
-      "max_open_conns": 25,
-      "max_idle_conns": 10,
-      "conn_max_lifetime": 300,
-      "conn_max_idle_time": 60
-    },
-    "otel": {
-      "endpoint": ".env:OTEL_ENDPOINT",
-      "enabled": ".env:bool:OTEL_ENABLED",
-      "sample_rate": ".env:float:OTEL_SAMPLE_RATE"
-    },
-    "redis": {
-      "addr": ".env:REDIS_ADDR",
-      "password": ".env:REDIS_PASSWORD",
-      "db": 0
-    },
-    "auth": {
-      "access_token_secret": ".env:ACCESS_TOKEN_SECRET",
-      "refresh_token_secret": ".env:REFRESH_TOKEN_SECRET",
-      "access_token_expiry": 900,
-      "refresh_token_expiry": 604800
-    },
-    "email": {
-      "enabled": ".env:bool:EMAIL_ENABLED",
-      "host": ".env:EMAIL_HOST",
-      "port": ".env:int:EMAIL_PORT",
-      "username": ".env:EMAIL_USERNAME",
-      "password": ".env:EMAIL_PASSWORD",
-      "from": ".env:EMAIL_FROM",
-      "from_name": ".env:EMAIL_FROM_NAME"
+      "cors_allow_credentials": true
     }
   }
 }

@@ -10,7 +10,7 @@ import (
 
 // allowedOriginSet is intentionally minimal — a static allow-list check, not
 // a spec-complete CORS implementation (no Vary: Origin, no wildcard
-// subdomain matching). cfg.ServerConfig.CORSAllowedOrigins is a small,
+// subdomain matching). cfg.Server.CORSAllowedOrigins is a small,
 // validated, static list; a full CORS library would be overkill for it. If
 // wildcard/subdomain matching is ever needed, reconsider this tradeoff
 // rather than bolting it on here.

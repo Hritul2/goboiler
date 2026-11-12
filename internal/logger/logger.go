@@ -38,7 +38,7 @@ func New(appCfg *config.AppConfig) (zerolog.Logger, func() error) {
 	if appCfg.Env == "dev" {
 		f, err := openLogFile("log/app.log")
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "warn: cannot open log file, falling back to stdout only: %v\n", err)
+			fmt.Printf("warn: cannot open log file, falling back to stdout only: %v\n", err)
 			writer = consoleWriter
 			closer = func() error { return nil }
 		} else {
