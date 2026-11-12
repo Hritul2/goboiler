@@ -1,8 +1,8 @@
 # Example: one feature, end to end (User)
 
 > Last updated: 2026-11-12
-> Code verified against commit: e2accc7 + uncommitted changes
-> Update this hash after the next commit.
+> Code verified against commit: c7162da (the tree just before the User code was
+> removed in that same commit; the code below was compiled and tested there).
 
 goboiler ships **no domain code**: no users, no endpoints, no jobs. This
 document is the missing example. It builds one complete feature — `User`:
