@@ -4,6 +4,21 @@
 push, `make init` is proven on Linux, and the User example can no longer drift
 from the code.
 
+## Shipped in Phase 0a
+
+- `.github/workflows/ci.yml`: `check` (golangci-lint v2.13.0 + `make check`) and
+  `ts` (`scripts/ts-check.sh`: strict `tsc` over the skeleton and golden-fixture
+  clients, fetch and axios, packages pinned in `.github/ts-check/`).
+- `.github/workflows/boilerplate.yml` + `scripts/init-smoke.sh`
+  (`make init-smoke`): `make init` on a scratch copy, on Linux (GNU sed) and
+  macOS (BSD sed). Both are deleted by `make init`.
+- `configs/config.local.json` untracked; `config.local.example.json` and
+  `make setup` added; the shipped-config tests no longer depend on a local file.
+- `log/.gitkeep` is now tracked (`.gitignore` fixed); `/output/` ignored.
+- `TestNew_timeFieldFormat` no longer writes into the source tree.
+
+Not yet shipped (Phase 0b): the compiled example (0.2 below).
+
 ## Scope
 
 ### 0.1 CI pipeline (GitHub Actions)
@@ -30,8 +45,8 @@ Today `docs/EXAMPLE.md` (≈3,370 lines) is a snapshot that nothing compiles.
 - `make init` deletes `examples/` in a new project (optional flag `KEEP_EXAMPLES=1`).
 - The "Last updated / commit" header is written by the generator.
 
-### 0.3 `config.local.json` (pending decision)
-If approved: `git rm --cached configs/config.local.json`, add it to `.gitignore`,
+### 0.3 `config.local.json` (done in 0a)
+Approved and shipped: `git rm --cached configs/config.local.json`, add it to `.gitignore`,
 commit `configs/config.local.example.json`, and document "copy the example".
 
 ## Done when

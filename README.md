@@ -1,5 +1,7 @@
 # goboiler
 
+[![CI](https://github.com/hritul2/goboiler/actions/workflows/ci.yml/badge.svg)](https://github.com/hritul2/goboiler/actions/workflows/ci.yml)
+
 A Go (gin) backend boilerplate: typed RPC endpoints, a generated TypeScript
 client, MongoDB behind swappable repository interfaces, Redis + asynq background
 jobs, OpenTelemetry throughout.
@@ -20,14 +22,16 @@ jobs, OpenTelemetry throughout.
 ```sh
 make init MODULE=github.com/you/yourproject   # once; optional NAME=..., needs a clean git tree
 make install-hooks
-cp .env.example .env
+make setup                                    # creates .env and configs/config.local.json from their examples
 docker compose -f docker-compose.local.yml up -d mongo redis mailpit
 make dev                                      # then: curl localhost:8080/ping
 make help                                     # every command
 ```
 
-`make check` (fmt, lint, tests, generated-client drift) is what CI should run;
-it needs [golangci-lint v2](https://golangci-lint.run/docs/welcome/install/).
+CI (`.github/workflows/ci.yml`) runs `make check` (fmt, lint, tests,
+generated-client drift) and a TypeScript type-check of the generated clients
+(`make ts-check`) on every push and pull request. Locally, `make check` needs
+[golangci-lint v2](https://golangci-lint.run/docs/welcome/install/).
 
 ## Docs
 

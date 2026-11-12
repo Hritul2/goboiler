@@ -20,7 +20,7 @@ Based on: https://github.com/sriniously/go-boilerplate
 
 ### 1. Env / Config
 - `config.LoadConfig` layers the configuration, **lowest priority first**:
-  `configs/config.json` (base) → `configs/config.local.json` (optional, found
+  `configs/config.json` (base) → `configs/config.local.json` (optional, gitignored, created from `configs/config.local.example.json` by `make setup`; found
   next to the base as `<name>.local.json`, deep-merged: objects merge, scalars
   and arrays replace) → env files (the override's `env_file_name` is loaded
   before the base's, and `godotenv` never overwrites a variable that is already
