@@ -5,16 +5,21 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewBase(t *testing.T) {
 	b := NewBase()
 
-	require.False(t, b.ID.IsZero(), "ID must be generated")
+	assert.True(t, b.ID.IsZero(), "ID is assigned by the store on Create, not by NewBase")
 	assert.True(t, b.CreatedAt.Equal(b.UpdatedAt), "CreatedAt and UpdatedAt must match at creation")
 	assert.Equal(t, time.UTC, b.CreatedAt.Location(), "timestamps must be UTC")
 	assert.WithinDuration(t, time.Now().UTC(), b.CreatedAt, time.Second)
+}
+
+func TestID(t *testing.T) {
+	assert.True(t, ID("").IsZero())
+	assert.False(t, ID("abc").IsZero())
+	assert.Equal(t, "abc", ID("abc").String())
 }
 
 func TestBase_Touch(t *testing.T) {

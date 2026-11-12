@@ -1,3 +1,7 @@
+# Compose project name: prefixes container, network and volume names, so two
+# projects started from this boilerplate do not collide. `make init` renames it.
+name: goboiler
+
 services:
   postgres:
     image: postgres:16-alpine

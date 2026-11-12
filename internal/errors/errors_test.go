@@ -1,6 +1,7 @@
 package errors_test
 
 import (
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"net/http"
@@ -268,4 +269,47 @@ func TestRedisSentinels(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, tt.sentinel.StatusCode)
 		})
 	}
+}
+
+func TestValidation(t *testing.T) {
+	in := map[string][]string{
+		"name":  {"is required"},
+		"email": {"must be a valid email address", "is too short"},
+	}
+	err := errs.Validation(in)
+
+	assert.Equal(t, errs.CodeBadRequest, err.Code)
+	assert.Equal(t, http.StatusBadRequest, err.StatusCode)
+	// Deterministic: sorted by field, messages joined.
+	assert.Equal(t, "validation failed: email: must be a valid email address, is too short; name: is required", err.Message)
+	assert.Equal(t, in, err.Fields)
+
+	// The error owns a copy of the map.
+	in["name"][0] = "mutated"
+	in["extra"] = []string{"x"}
+	assert.Equal(t, []string{"is required"}, err.Fields["name"])
+	assert.NotContains(t, err.Fields, "extra")
+}
+
+func TestValidation_EmptyMap(t *testing.T) {
+	err := errs.Validation(nil)
+	assert.Equal(t, "validation failed", err.Message)
+	assert.Empty(t, err.Fields)
+}
+
+func TestToResponse_Fields(t *testing.T) {
+	t.Run("validation_error_carries_fields", func(t *testing.T) {
+		resp := errs.Validation(map[string][]string{"email": {"is required"}}).ToResponse()
+		assert.Equal(t, map[string][]string{"email": {"is required"}}, resp.Fields)
+
+		b, err := json.Marshal(resp)
+		require.NoError(t, err)
+		assert.Contains(t, string(b), `"fields":{"email":["is required"]}`)
+	})
+
+	t.Run("other_errors_omit_fields_key", func(t *testing.T) {
+		b, err := json.Marshal(errs.NotFound("x").ToResponse())
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"code":"NOT_FOUND","message":"x"}`, string(b))
+	})
 }

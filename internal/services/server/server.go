@@ -44,22 +44,18 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Server, 
 	}
 
 	svcs := services.NewServices(repos, asyncprocessor.Get().Client, log)
-	_ = svcs // not yet consumed by any handler (no User HTTP endpoints this
-	// pass) — called now anyway to prove repo.NewRepositories/
-	// services.NewServices are reachable from boot; wired into
-	// handler.New() once UserHandler exists.
 
-	h := handler.New(db.Get(), redis.Get(), log)
+	h := handler.New(db.Get(), redis.Get(), svcs, log)
 	engine := router.New(cfg, log, h)
 
 	return &Server{
 		log: log,
 		httpServer: &http.Server{
-			Addr:         fmt.Sprintf(":%d", cfg.ServerConfig.Port),
+			Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
 			Handler:      engine,
-			ReadTimeout:  time.Duration(cfg.ServerConfig.ReadTimeout) * time.Second,
-			WriteTimeout: time.Duration(cfg.ServerConfig.WriteTimeout) * time.Second,
-			IdleTimeout:  time.Duration(cfg.ServerConfig.IdleTimeout) * time.Second,
+			ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
+			WriteTimeout: time.Duration(cfg.Server.WriteTimeout) * time.Second,
+			IdleTimeout:  time.Duration(cfg.Server.IdleTimeout) * time.Second,
 		},
 	}, nil
 }

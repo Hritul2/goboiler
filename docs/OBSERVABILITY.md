@@ -31,11 +31,11 @@ env in `configs/*.json`:
 
 | Env var            | Config field | Notes                                   |
 |---------------------|--------------|------------------------------------------|
-| `OTEL_ENABLED`       | `Enabled`    | `false` by default locally               |
-| `OTEL_ENDPOINT`      | `Endpoint`   | OTLP/HTTP collector URL, e.g. `http://localhost:4318` |
-| `OTEL_SAMPLE_RATE`   | `SampleRate` | Trace sampling ratio; defaults to `1.0` if unset |
+| `OTEL_ENABLED`       | `cfg.OTel.Enabled`    | `false` by default locally               |
+| `OTEL_ENDPOINT`      | `cfg.OTel.Endpoint`   | OTLP/HTTP collector URL, e.g. `http://localhost:4318` |
+| `OTEL_SAMPLE_RATE`   | `cfg.OTel.SampleRate` | Trace sampling ratio; defaults to `1.0` if unset |
 
-When `Enabled` is `false`, `observability.New` returns a `Provider` backed
+When `cfg.OTel.Enabled` is `false`, `observability.New` returns a `Provider` backed
 by no-op providers — every `otel.Tracer(...)`, `otel.Meter(...)`, and the
 zerolog hook still work, they just don't ship anything anywhere. This means
 call sites never need to branch on whether OTel is enabled.
@@ -67,7 +67,7 @@ log.Info().
 
 Get a `tracer` once per package as a package-level `var`, keyed by the
 package's full import path (this is the convention used everywhere in this
-repo — see `internal/services/user/user.go`, `internal/services/asyncprocessor/router.go`):
+repo — see the User service in `docs/EXAMPLE.md` step 4 and `internal/services/asyncprocessor/router.go`):
 
 ```go
 var tracer = otel.Tracer("github.com/hritul2/goboiler/internal/services/order")
@@ -99,7 +99,7 @@ Pass the reassigned `ctx` (not the original) down to anything called
 afterward — that's what threads the span into child calls and into Mongo
 queries (`otelmongo`'s command monitor picks up spans from context
 automatically, no manual instrumentation needed at the repo layer — see the
-comment atop `internal/repo/user.go`).
+comment atop `internal/repo/mongo/doc.go`).
 
 **Don't double-instrument Mongo calls.** `internal/db` already wires
 `otelmongo` as a command monitor, so every query gets a span for free. Add
@@ -113,7 +113,7 @@ instruments once per package, keyed by import path:
 
 ```go
 var (
-    meter = otel.Meter("github.com/hritul2/goboiler/internal/repo")
+    meter = otel.Meter("github.com/hritul2/goboiler/internal/repo/mongo")
 
     repoOperationCounter, _ = meter.Int64Counter(
         "repo.operation",
@@ -128,7 +128,7 @@ var (
 ```
 
 Record against the instruments with attributes for what varies (operation
-name, status, etc.) — see `internal/repo/user.go`'s `instrumentOperation`
+name, status, etc.) — see `internal/repo/mongo/instrument.go`'s `instrumentOperation`
 helper for the canonical pattern: wrap the operation in a closure, time it,
 and record both a counter and a duration histogram tagged with
 `status=ok|error`:
@@ -157,9 +157,9 @@ func instrumentOperation(ctx context.Context, operation string, fn func() error)
 ```
 
 Existing examples to copy from:
-- `internal/repo/user.go` — per-operation counter + duration histogram for
+- `internal/repo/mongo/instrument.go` — per-operation counter + duration histogram for
   every Mongo CRUD call
-- `internal/lib/email/tasks.go` — sent/failed counters for outbound email
+- `internal/lib/email/tasks.go` (in `docs/EXAMPLE.md` step 5, not in the source tree) — sent/failed counters for outbound email
 - `internal/services/asyncprocessor/router.go` — task-processed counter +
   duration histogram, plus a span per job (combines tracing and metrics in
   one place)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -123,41 +124,41 @@ func TestSetDefaults(t *testing.T) {
 	t.Run("fills_all_zero_fields", func(t *testing.T) {
 		cfg := &Config{}
 		setDefaults(cfg)
-		assert.Equal(t, "info", cfg.AppConfig.LogLevel)
-		assert.Equal(t, 1.0, cfg.OpenTelConfig.SampleRate)
-		assert.Equal(t, 30, cfg.ServerConfig.ShutdownTimeout)
-		assert.Equal(t, []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, cfg.ServerConfig.CORSAllowedMethods)
-		assert.Equal(t, []string{"Content-Type", "Authorization"}, cfg.ServerConfig.CORSAllowedHeaders)
-		assert.Equal(t, 600, cfg.ServerConfig.CORSMaxAgeSeconds)
-		assert.EqualValues(t, 2<<20, cfg.ServerConfig.MaxRequestBodyBytes)
-		assert.EqualValues(t, 10<<20, cfg.ServerConfig.MaxResponseBodyBytes)
-		assert.Equal(t, 100, cfg.ServerConfig.RateLimitPerMinute)
-		assert.Equal(t, 20, cfg.ServerConfig.RateLimitBurst)
+		assert.Equal(t, "info", cfg.App.LogLevel)
+		assert.Equal(t, 1.0, cfg.OTel.SampleRate)
+		assert.Equal(t, 30, cfg.Server.ShutdownTimeout)
+		assert.Equal(t, []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, cfg.Server.CORSAllowedMethods)
+		assert.Equal(t, []string{"Content-Type", "Authorization"}, cfg.Server.CORSAllowedHeaders)
+		assert.Equal(t, 600, cfg.Server.CORSMaxAgeSeconds)
+		assert.EqualValues(t, 2<<20, cfg.Server.MaxRequestBodyBytes)
+		assert.EqualValues(t, 10<<20, cfg.Server.MaxResponseBodyBytes)
+		assert.Equal(t, 100, cfg.Server.RateLimitPerMinute)
+		assert.Equal(t, 20, cfg.Server.RateLimitBurst)
 	})
 
 	t.Run("does_not_overwrite_set_fields", func(t *testing.T) {
 		cfg := &Config{}
-		cfg.AppConfig.LogLevel = "warn"
-		cfg.OpenTelConfig.SampleRate = 0.5
-		cfg.ServerConfig.ShutdownTimeout = 60
-		cfg.ServerConfig.CORSAllowedMethods = []string{"GET"}
-		cfg.ServerConfig.CORSAllowedHeaders = []string{"X-Custom"}
-		cfg.ServerConfig.CORSMaxAgeSeconds = 42
-		cfg.ServerConfig.MaxRequestBodyBytes = 1024
-		cfg.ServerConfig.MaxResponseBodyBytes = 2048
-		cfg.ServerConfig.RateLimitPerMinute = 5
-		cfg.ServerConfig.RateLimitBurst = 2
+		cfg.App.LogLevel = "warn"
+		cfg.OTel.SampleRate = 0.5
+		cfg.Server.ShutdownTimeout = 60
+		cfg.Server.CORSAllowedMethods = []string{"GET"}
+		cfg.Server.CORSAllowedHeaders = []string{"X-Custom"}
+		cfg.Server.CORSMaxAgeSeconds = 42
+		cfg.Server.MaxRequestBodyBytes = 1024
+		cfg.Server.MaxResponseBodyBytes = 2048
+		cfg.Server.RateLimitPerMinute = 5
+		cfg.Server.RateLimitBurst = 2
 		setDefaults(cfg)
-		assert.Equal(t, "warn", cfg.AppConfig.LogLevel)
-		assert.Equal(t, 0.5, cfg.OpenTelConfig.SampleRate)
-		assert.Equal(t, 60, cfg.ServerConfig.ShutdownTimeout)
-		assert.Equal(t, []string{"GET"}, cfg.ServerConfig.CORSAllowedMethods)
-		assert.Equal(t, []string{"X-Custom"}, cfg.ServerConfig.CORSAllowedHeaders)
-		assert.Equal(t, 42, cfg.ServerConfig.CORSMaxAgeSeconds)
-		assert.EqualValues(t, 1024, cfg.ServerConfig.MaxRequestBodyBytes)
-		assert.EqualValues(t, 2048, cfg.ServerConfig.MaxResponseBodyBytes)
-		assert.Equal(t, 5, cfg.ServerConfig.RateLimitPerMinute)
-		assert.Equal(t, 2, cfg.ServerConfig.RateLimitBurst)
+		assert.Equal(t, "warn", cfg.App.LogLevel)
+		assert.Equal(t, 0.5, cfg.OTel.SampleRate)
+		assert.Equal(t, 60, cfg.Server.ShutdownTimeout)
+		assert.Equal(t, []string{"GET"}, cfg.Server.CORSAllowedMethods)
+		assert.Equal(t, []string{"X-Custom"}, cfg.Server.CORSAllowedHeaders)
+		assert.Equal(t, 42, cfg.Server.CORSMaxAgeSeconds)
+		assert.EqualValues(t, 1024, cfg.Server.MaxRequestBodyBytes)
+		assert.EqualValues(t, 2048, cfg.Server.MaxResponseBodyBytes)
+		assert.Equal(t, 5, cfg.Server.RateLimitPerMinute)
+		assert.Equal(t, 2, cfg.Server.RateLimitBurst)
 	})
 
 	t.Run("credentials_default_to_false_secure_by_default", func(t *testing.T) {
@@ -169,7 +170,7 @@ func TestSetDefaults(t *testing.T) {
 		// the safer default for a boilerplate.
 		cfg := &Config{}
 		setDefaults(cfg)
-		assert.False(t, cfg.ServerConfig.CORSAllowCredentials)
+		assert.False(t, cfg.Server.CORSAllowCredentials)
 	})
 }
 
@@ -178,15 +179,15 @@ func TestLoadConfig_valid(t *testing.T) {
 	cfg, err := LoadConfig(&path)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	assert.Equal(t, "test-app", cfg.AppConfig.Name)
-	assert.Equal(t, "dev", cfg.AppConfig.Env)
-	assert.Equal(t, "1.0.0", cfg.AppConfig.Version)
-	assert.Equal(t, "debug", cfg.AppConfig.LogLevel)
-	assert.Equal(t, 8080, cfg.ServerConfig.Port)
-	assert.Equal(t, 30, cfg.ServerConfig.ShutdownTimeout)
-	assert.Equal(t, []string{"http://localhost:3000"}, cfg.ServerConfig.CORSAllowedOrigins)
-	assert.False(t, cfg.OpenTelConfig.Enabled)
-	assert.Equal(t, 1.0, cfg.OpenTelConfig.SampleRate)
+	assert.Equal(t, "test-app", cfg.App.Name)
+	assert.Equal(t, "dev", cfg.App.Env)
+	assert.Equal(t, "1.0.0", cfg.App.Version)
+	assert.Equal(t, "debug", cfg.App.LogLevel)
+	assert.Equal(t, 8080, cfg.Server.Port)
+	assert.Equal(t, 30, cfg.Server.ShutdownTimeout)
+	assert.Equal(t, []string{"http://localhost:3000"}, cfg.Server.CORSAllowedOrigins)
+	assert.False(t, cfg.OTel.Enabled)
+	assert.Equal(t, 1.0, cfg.OTel.SampleRate)
 }
 
 func TestLoadConfig_invalidJSON(t *testing.T) {
@@ -235,9 +236,9 @@ func TestLoadConfig_defaults(t *testing.T) {
 	path := writeConfigFile(t, raw)
 	result, err := LoadConfig(&path)
 	require.NoError(t, err)
-	assert.Equal(t, "info", result.AppConfig.LogLevel)
-	assert.Equal(t, 1.0, result.OpenTelConfig.SampleRate)
-	assert.Equal(t, 30, result.ServerConfig.ShutdownTimeout)
+	assert.Equal(t, "info", result.App.LogLevel)
+	assert.Equal(t, 1.0, result.OTel.SampleRate)
+	assert.Equal(t, 30, result.Server.ShutdownTimeout)
 }
 
 func TestLoadConfig_envInterpolation(t *testing.T) {
@@ -249,7 +250,7 @@ func TestLoadConfig_envInterpolation(t *testing.T) {
 	path := writeConfigFile(t, raw)
 	cfg, err := LoadConfig(&path)
 	require.NoError(t, err)
-	assert.Equal(t, "9.9.9", cfg.AppConfig.Version)
+	assert.Equal(t, "9.9.9", cfg.App.Version)
 }
 
 func TestLoadConfig_otelDisabledNoEndpoint(t *testing.T) {
@@ -270,7 +271,7 @@ func TestLoadConfig_emailDisabledNoHost(t *testing.T) {
 	path := writeConfigFile(t, validConfigJSON())
 	cfg, err := LoadConfig(&path)
 	require.NoError(t, err)
-	assert.False(t, cfg.EmailConfig.Enabled)
+	assert.False(t, cfg.Email.Enabled)
 }
 
 func TestLoadConfig_emailEnabledMissingHost(t *testing.T) {
@@ -298,11 +299,49 @@ func TestLoadConfig_emailEnabledValid(t *testing.T) {
 	path := writeConfigFile(t, raw)
 	cfg, err := LoadConfig(&path)
 	require.NoError(t, err)
-	assert.True(t, cfg.EmailConfig.Enabled)
-	assert.Equal(t, "smtp.example.com", cfg.EmailConfig.Host)
-	assert.Equal(t, 587, cfg.EmailConfig.Port)
-	assert.Equal(t, "mailer", cfg.EmailConfig.Username)
-	assert.Equal(t, "s3cret", cfg.EmailConfig.Password)
-	assert.Equal(t, "noreply@example.com", cfg.EmailConfig.From)
-	assert.Equal(t, "Example", cfg.EmailConfig.FromName)
+	assert.True(t, cfg.Email.Enabled)
+	assert.Equal(t, "smtp.example.com", cfg.Email.Host)
+	assert.Equal(t, 587, cfg.Email.Port)
+	assert.Equal(t, "mailer", cfg.Email.Username)
+	assert.Equal(t, "s3cret", cfg.Email.Password)
+	assert.Equal(t, "noreply@example.com", cfg.Email.From)
+	assert.Equal(t, "Example", cfg.Email.FromName)
+}
+
+// TestConfig_SectionKeysUnchanged pins the config-file section names (koanf
+// tags) of the named Config fields, so renaming a Go field can never change a
+// config key or the ".env:VAR" mapping users already have.
+func TestConfig_SectionKeysUnchanged(t *testing.T) {
+	want := map[string]string{
+		"App": "app", "Server": "server", "DB": "db", "OTel": "otel",
+		"Redis": "redis", "Auth": "auth", "Email": "email",
+	}
+	typ := reflect.TypeFor[Config]()
+	seen := 0
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue // bookkeeping such as Config.sources, not configuration
+		}
+		seen++
+		assert.False(t, f.Anonymous, "%s must be a named field, not embedded", f.Name)
+		assert.Equal(t, want[f.Name], f.Tag.Get("koanf"), f.Name)
+	}
+	require.Equal(t, len(want), seen)
+}
+
+// TestLoadConfig_PopulatesEverySection loads a complete config and checks
+// one value per section lands in its named field.
+func TestLoadConfig_PopulatesEverySection(t *testing.T) {
+	path := writeConfigFile(t, validConfigJSON())
+	cfg, err := LoadConfig(&path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-app", cfg.App.Name)
+	assert.Equal(t, 8080, cfg.Server.Port)
+	assert.Equal(t, "mongodb://localhost:27017", cfg.DB.Uri)
+	assert.Equal(t, "localhost:6379", cfg.Redis.Addr)
+	assert.Equal(t, 900, cfg.Auth.AccessTokenExpiry)
+	assert.False(t, cfg.Email.Enabled)
+	assert.False(t, cfg.OTel.Enabled)
 }

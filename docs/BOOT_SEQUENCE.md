@@ -1,5 +1,9 @@
 # Go Backend Boot Sequence
 
+> The repository ships no domain code (no users, endpoints or jobs); the one-feature worked example is [EXAMPLE.md](EXAMPLE.md).
+>
+> New project? Start with [HOW_TO_USE_IT.md](HOW_TO_USE_IT.md) (first steps, decisions and their costs, getting the generated client into your frontend).
+
 Based on: https://github.com/sriniously/go-boilerplate
 
 > Observability: **OpenTelemetry** throughout (not New Relic)
@@ -15,8 +19,20 @@ Based on: https://github.com/sriniously/go-boilerplate
 ## Startup Order
 
 ### 1. Env / Config
-- Load `.env` via `godotenv` autoload (fires at import time)
-- Parse env vars with `koanf` → unmarshal into typed `Config` struct
+- `config.LoadConfig` layers the configuration, **lowest priority first**:
+  `configs/config.json` (base) → `configs/config.local.json` (optional, found
+  next to the base as `<name>.local.json`, deep-merged: objects merge, scalars
+  and arrays replace) → env files (the override's `env_file_name` is loaded
+  before the base's, and `godotenv` never overwrites a variable that is already
+  set) → real OS environment variables, which win over everything. `".env:VAR"`
+  references are interpolated on the **merged** result; validation runs on it
+  too. See `HOW_TO_USE_IT.md` ("Config files and priority").
+- Parse the merged map with `koanf` → unmarshal into typed `Config` struct. Every
+  section is a **named field**, never an embedded struct: `cfg.App`,
+  `cfg.Server`, `cfg.DB`, `cfg.OTel`, `cfg.Redis`, `cfg.Auth`, `cfg.Email`
+  (so call sites read `cfg.App.Env`, `cfg.Server.Port`, `cfg.DB.Uri`). The
+  `koanf` tags — the config-file section names — and the `.env:VAR`
+  references in `configs/*.json` are unchanged by the Go field names.
 - `setDefaults` fills in optional operational tunables not present in
   `configs/*.json` — CORS methods/headers/max-age, request/response body
   size limits, rate-limit per-minute/burst — before validation runs, so
@@ -27,7 +43,8 @@ Based on: https://github.com/sriniously/go-boilerplate
   overriding an explicit `false`.
 - Validate all fields with `go-playground/validator` — fail fast if missing
 - `cfg.PrintConfig()` — call once, early in boot, for operational
-  visibility. Every secret (Mongo URI, Redis/email passwords, auth token
+  visibility. It starts with the config and env files that were actually used
+  (and which env files were missing), lowest priority first. Every secret (Mongo URI, Redis/email passwords, auth token
   secrets) is masked via `maskSecret` before printing — safe to call
   unconditionally, no environment gating needed.
 
@@ -74,10 +91,12 @@ Based on: https://github.com/sriniously/go-boilerplate
 ### 6. Async Worker (Asynq over Redis)
 - Before calling `Init`, build the consumer side: an
   `asyncprocessor.Router` with every domain's task handlers registered
-  against it (e.g. `router.Handle(email.TaskWelcomeEmail,
-  email.NewWelcomeEmailHandler(sender, log))`). asyncprocessor itself has no
-  idea what any task does — this registration step, at the composition
-  root, is what wires a domain's handler to its task type.
+  against it (`services.NewJobRouter`; the skeleton registers none — a
+  worker with no handlers starts fine, and EXAMPLE.md step 5 shows
+  `router.Handle(email.TaskWelcomeEmail, email.NewWelcomeEmailHandler(sender,
+  log))`). asyncprocessor itself has no idea what any task does — this
+  registration step, at the composition root, is what wires a domain's
+  handler to its task type.
 - Call the async job package's singleton `Init(ctx, cfg, log, router)` (see
   CODING_SEQUENCE.md step 13, `internal/services/asyncprocessor`) — mirrors
   the db/redis singleton pattern. `Init` does the full boot in one call:
@@ -90,7 +109,7 @@ Based on: https://github.com/sriniously/go-boilerplate
   stored alongside `Client`/`server` — it backs `ListArchivedTasks`, the
   Go-API-only read path for asynq's "archive" (its dead-letter-queue
   equivalent). Deliberately no HTTP route for it: archived-task payloads may
-  contain PII (e.g. the welcome-email task's recipient) and no auth exists
+  contain PII (e.g. an email task's recipient) and no auth exists
   yet.
 - **No wrapper goroutine needed** — `asynq.Server.Start` is non-blocking (it
   spawns its own internal goroutines and returns immediately; confirmed
@@ -107,20 +126,34 @@ Based on: https://github.com/sriniously/go-boilerplate
   needs Redis alive to drain).
 
 ### 7. Repositories
-- Pure data-access layer
-- Receives: db singleton (via `db.Get()`/`db.GetMongo()`)
+- Pure data-access layer, and the **only** database-specific code besides
+  `internal/db`. `internal/repo` holds driver-agnostic interfaces
+  (one per entity, IDs are opaque `models.ID` strings) and the
+  `Repositories` aggregate; each database is an implementation package under
+  it — `internal/repo/mongo` (a Postgres/SQLite one would be
+  `internal/repo/<driver>` implementing the same interfaces). The skeleton
+  declares no repository yet, so `NewRepositories` needs no database and the
+  server boots (and `/ping` works) before any domain exists; EXAMPLE.md step 2
+  builds the interface and the Mongo implementation.
+- The Mongo implementation receives the db singleton (`db.GetMongo()`),
+  keeps a private bson document struct plus to/from-model conversion, parses
+  the hex ID (a malformed ID is `errs.NotFound` — it cannot exist), and
+  normalises driver errors through `db.MapDBError`.
 - No business logic — only queries and cache reads/writes
 - First actually constructed inside step 16's server struct
-  (`repo.NewRepositories(ctx)`) — nothing before that step called it; the
-  singleton existed but was unused until the HTTP layer needed it.
+  (`repo.NewRepositories(ctx)` — the single place that picks the Mongo
+  implementation and runs `EnsureIndexes`) — nothing before that step called
+  it; the singleton existed but was unused until the HTTP layer needed it.
+- `internal/archtest` fails `go test` if any package other than
+  `internal/db` and `internal/repo/mongo` imports the Mongo driver.
 
 ### 8. Services
 - Business logic layer
-- Receives: repos + an `Enqueuer` interface (satisfied by
-  `asyncprocessor.Get().Client`) + config
+- Receives: repo **interfaces** (never a driver type) + an `Enqueuer`
+  interface (satisfied by `asyncprocessor.Get().Client`) + config
 - Owns all domain rules
-- A service that only *enqueues* work (e.g. UserService enqueuing a welcome
-  email) needs just the `Enqueuer` — it never needs an `email.Sender`
+- A service that only *enqueues* work (e.g. the User service enqueuing a
+  welcome email, EXAMPLE.md step 4) needs just the `Enqueuer` — it never needs an `email.Sender`
   directly. The sender is consumer-side: it's built once at step 6 (inside
   `internal/services.NewJobRouter`), to register the actual handler against
   the router; services only ever touch the producer side (building/
@@ -138,7 +171,14 @@ Based on: https://github.com/sriniously/go-boilerplate
   same story as repos above.
 
 ### 9. Handlers
-- HTTP handler structs
+- Domain handlers (`internal/handler/<domain>`) are **typed functions**
+  `func(ctx, Req) (Res, error)` over a narrow service interface — they know
+  nothing about gin or JSON. The `internal/api` adapter, not the handler,
+  does the HTTP work: decode the JSON body → `validation.Validate` (400 with
+  a per-field `fields` map on failure) → call the function → render `200` +
+  JSON, or hand the error to `middleware.ErrorHandler`. The same endpoint
+  declarations feed the router (step 10) and the TypeScript generator — see
+  `docs/API_HANDLERS.md`.
 - Receives: services (no direct DB/Redis access), except `HealthHandler`,
   which is constructor-injected with `db.Get()`/`redis.Get()` directly
   (both satisfy a small `Pinger` interface structurally, no adapter code)
@@ -149,16 +189,17 @@ Based on: https://github.com/sriniously/go-boilerplate
   "redis":...}}`, 200 if both healthy, 503 otherwise. No job-queue check —
   asynq has no `Ping`, and the queue rides on the same Redis connection
   already being checked.
-- Maps HTTP request → service call → HTTP response
+- Handlers pass DTO strings straight through as `models.ID`; the repository
+  decides whether an ID exists.
 
 ### 10. Router + Middlewares
 `gin.SetMode(...)` is called before `gin.New()`, mapped from
-`cfg.AppConfig.Env` (`prod`/`stage` → release mode, else debug) —
+`cfg.App.Env` (`prod`/`stage` → release mode, else debug) —
 previously never called, so gin always ran in debug mode regardless of
 environment.
 
 Stack order (outer → inner), as actually built:
-1. CORS — config-driven (`CORSSettings` built from `cfg.ServerConfig`:
+1. CORS — config-driven (`CORSSettings` built from `cfg.Server`:
    origins, methods, headers, credentials, max-age)
 2. `MaxReqResSize` — global request-size guard (hard 413 via
    `http.MaxBytesReader`) + response-size observability warning (never
@@ -183,17 +224,25 @@ CORS and the size/rate guards mount first so bad requests are rejected as
 cheaply as possible. **Auth is still absent, deliberately** — remains
 future work; rate limiting, previously deferred, is now implemented above.
 
-Register routes: `GET /ping` **outside any group** (bare liveness check,
-not versioned) + a versioned `/api/v1` group that is **intentionally empty**
-for now — it exists and inherits the middleware stack, proving the
-scaffolding, but has no real routes yet. `/ping` now performs the real
-db/redis dependency checks described in step 9 — a real `/health` under a
-different name was considered and rejected; `/ping` keeps its name and
-just gets real checks.
+Register three independent route families (`internal/router/router.go`;
+full guide in `docs/API_HANDLERS.md`):
+- `GET /ping` **outside any group** (bare liveness check, not versioned). It
+  performs the real db/redis dependency checks described in step 9 — a real
+  `/health` under a different name was considered and rejected; `/ping`
+  keeps its name and just gets real checks.
+- One gin group per RPC API version from `router.APIVersions`
+  (`POST /api/v1/rpc/<function>`, mounted with `api.Mount`, which panics at
+  boot on a malformed endpoint declaration). Each group inherits the
+  middleware stack; adding `/api/v2` is a new entry in `versions.go`. The
+  skeleton's `v1` has no functions — a valid, empty version that mounts no
+  routes.
+- A reserved, still empty `/webhook` group for provider callbacks
+  (Clerk, Dodo, …), which need the raw request body and are not part of the
+  generated client.
 
 ### 11. HTTP Server
 - Configure `http.Server` with read / write / idle timeouts from
-  `cfg.ServerConfig`, `Handler` set to the `*gin.Engine` from step 10
+  `cfg.Server`, `Handler` set to the `*gin.Engine` from step 10
 - Built by `internal/services/server.New`, which does **not** start
   listening — a separate `Start() <-chan error` does, spawning
   `ListenAndServe` in a goroutine and returning a channel that receives
@@ -207,7 +256,7 @@ logged "application started" and returned immediately, tearing everything
 back down before any server had served a single request. Now:
 `signal.Notify` + a blocking channel receive on SIGINT/SIGTERM triggers the
 sequence below:
-1. `httpServer.Shutdown(ctx)` — drain in-flight requests (`cfg.ServerConfig.ShutdownTimeout`)
+1. `httpServer.Shutdown(ctx)` — drain in-flight requests (`cfg.Server.ShutdownTimeout`)
 2. Close the async job singleton (`asyncprocessor.Get().Close(ctx)`) — closes
    before redis since the queue needs Redis alive to drain in-flight tasks,
    and it was opened after redis at boot (step 6 follows step 5)
@@ -221,6 +270,49 @@ Live-verified: the full sequence above produces exactly this log order on a
 clean shutdown (`"shutdown signal received"` → job shutting-down/shut-down
 → `"shutdown complete"`), with the HTTP/redis/db/otel steps each logging
 only on error.
+
+---
+
+## Build-time: TypeScript generator (cmd/gen)
+
+Not part of server startup — `cmd/gen` is a separate binary (`make gen`) with
+its own, much shorter sequence. It needs **no config, database, Redis,
+network or running server**.
+
+1. **Flags** — `-out` (default `gen/ts`; `make gen OUT=...`): the directory
+   each version is written under; `-axios`/`--axios` (`make gen GEN_FLAGS=--axios`):
+   generate an axios-based `client.ts` instead of the default fetch one (the
+   other three files are identical in both modes).
+2. **Handler tree with nil deps** — `handler.New(nil, nil, &services.Services{}, zerolog.Nop())`.
+   `New` calls nothing on its arguments, and the generator only reads
+   endpoint *metadata*; the typed functions are bound to nil services and
+   never invoked.
+3. **Versions** — `router.APIVersions(h)`: the exact list `router.New`
+   mounts, so the generated client cannot drift from the served API.
+4. **Validate** — `Version.Validate()` per version (name/prefix shape,
+   lowerCamel unique function names, named non-generic struct Req/Res, no
+   schema-name collisions) plus a duplicate-version-name check. Returns an
+   error here instead of panicking like `api.Mount`.
+5. **Types → zod** — for each endpoint in registration order, its `Req` and
+   `Res` `reflect.Type`s go through `zen` (the only importer, along with
+   `internal/gen`) to produce zod schemas from the `json`/`validate` tags.
+   zen panics on a tag it cannot express; `Generate` recovers that into an
+   error naming the version.
+6. **Templates** — the embedded `internal/gen/templates/*.tmpl` render
+   `schemas.ts`, `client.ts`, `hooks.ts` and `index.ts` (`client.ts` = the
+   shared `client.ts.tmpl` plus the transport blocks of `client_fetch.tmpl` or
+   `client_axios.tmpl`; including the
+   hand-written `ApiErrorSchema`/`ApiError`, guarded by a test against
+   `errs.ErrorResponse`). Output is pure and deterministic.
+7. **Write** — `gen.Write` writes `gen/ts/<version>/*.ts` and removes stale
+   `.ts` files inside the version folders it owns (nothing else in `-out`).
+8. **CI guard** — `make gen-check` re-runs the generator (same `OUT` and
+   `GEN_FLAGS`) and fails if `OUT` (default `gen/ts`) differs from the committed
+   tree or contains untracked files; it refuses an `OUT` outside this repo.
+   `make check` includes it. Generated output is committed.
+
+Details, file map and the golden-file tests: CODING_SEQUENCE.md step 24 and
+`docs/API_HANDLERS.md` §9.
 
 ---
 
@@ -241,7 +333,7 @@ emit spans by hand (see CODING_SEQUENCE.md step 6 and BOOT_SEQUENCE.md step 4).
 | Redis hook | `github.com/redis/go-redis/extra/redisotel/v9` |
 | HTTP framework middleware | `go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin` (gin was the actual choice — the doc originally assumed Echo/`otelecho`, never implemented) |
 | Async job task dispatch | No maintained contrib package for asynq — hand-rolled: `internal/services/asyncprocessor`'s `Router.Handle` wraps every registered handler in a span (`otel.Tracer(pkgpath)`), same "hand-roll when nothing maintained exists" principle as step 4's Mongo tracing |
-| Custom metrics (no contrib coverage) | `otel.Meter(pkgpath)` per package, hand-rolled where no automatic instrumentation exists: `asyncprocessor` (`task.processed`/`task.duration_ms`), `internal/lib/email` (`email.sent`/`email.failed`), `internal/repo` (`repo.operation`/`repo.operation.duration_ms`). **Not** added for HTTP (otelgin already covers it) or Redis (`redisotel` already covers it) — would double-count. **Not** added for `UserService` — scoped out for now. |
+| Custom metrics (no contrib coverage) | `otel.Meter(pkgpath)` per package, hand-rolled where no automatic instrumentation exists: `asyncprocessor` (`task.processed`/`task.duration_ms`), `internal/repo/mongo` (`repo.operation`/`repo.operation.duration_ms`); a domain job adds its own (the welcome-email job in EXAMPLE.md step 5 records `email.sent`/`email.failed`). **Not** added for HTTP (otelgin already covers it) or Redis (`redisotel` already covers it) — would double-count. **Not** added for domain services — scoped out. |
 
 ---
 
@@ -251,6 +343,8 @@ Native git, no external framework: `.githooks/pre-commit` (gofmt check →
 `go vet` → `golangci-lint run`, degrading gracefully with an install link if
 `golangci-lint` isn't on PATH) is activated per-clone via `make
 install-hooks` (`git config core.hooksPath .githooks`). `.golangci.yml` at
-the repo root configures the enabled linters. `make lint`/`make fmt-check`
-run the same checks standalone (CI, manual use) outside of a commit.
-| HTTP client tracing | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` |
+the repo root configures the enabled linters in **golangci-lint v2** format
+(`version: "2"`), so `make lint` and `make check` require a v2 binary.
+`make lint`/`make fmt-check` run the same checks standalone (CI, manual use)
+outside of a commit; `make check` adds tests and the generated-client drift
+check.

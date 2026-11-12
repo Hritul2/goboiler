@@ -1,5 +1,7 @@
 # Async Jobs — How the Queue Works
 
+> The repository ships **no jobs**: `NewJobRouter` registers nothing and the worker starts with an empty router. The welcome-email job used as the running example below is built, with tests, in [EXAMPLE.md](EXAMPLE.md) step 5 (and the service that enqueues it in step 4); its code is not in the source tree.
+
 This is a practical guide to the background job system (`internal/services/asyncprocessor`, on top of `hibiken/asynq` over Redis). It explains the moving parts in plain terms and walks through how to add a new job. For the "why it's built this way" architectural reasoning, see `CODING_SEQUENCE.md` step 13; this document is the "how do I actually use it" companion.
 
 ---
@@ -46,7 +48,7 @@ func NewWelcomeEmailTask(to, name string) (*asynq.Task, error) {
 }
 ```
 
-This lives next to whatever domain owns the job — the welcome-email task lives in `internal/lib/email/tasks.go`, not in the queue package. If you're adding a "send invoice" job, it'd live wherever invoices are handled.
+This lives next to whatever domain owns the job — in the example the welcome-email task lives in `internal/lib/email/tasks.go` (EXAMPLE.md step 5), not in the queue package. If you're adding a "send invoice" job, it'd live wherever invoices are handled.
 
 **Half B — actually enqueue it.** Anywhere in the app that needs to trigger the job calls the producer function, then hands the result to something that can enqueue:
 
@@ -105,7 +107,7 @@ Rules of thumb for writing a handler:
 - **Log inside the handler** for both success and failure — the worker doesn't log task contents for you.
 - Handlers should be **idempotent where possible** — a task can be retried and, more rarely, redelivered, so running it twice shouldn't corrupt anything.
 
-This lives next to the producer, in the same domain file (`internal/lib/email/tasks.go` for the welcome-email example).
+This lives next to the producer, in the same domain file (`internal/lib/email/tasks.go` in the EXAMPLE.md welcome-email job).
 
 ### 4. A router — "how to create a router, and how dequeuing works"
 
@@ -145,7 +147,7 @@ You never call `router.mux` or touch asynq's internals directly — `Handle` is 
 
 Say you want a "cleanup expired invites" job.
 
-1. **Decide where it lives.** Pick the package that owns this behavior — e.g. `internal/services/user` if it's User-domain, or a new package if it's genuinely cross-cutting.
+1. **Decide where it lives.** Pick the package that owns this behavior — e.g. `internal/services/<domain>` if it belongs to a domain, or a new package if it's genuinely cross-cutting.
 2. **Define the task type and payload** in that package (a new file, e.g. `tasks.go`, mirroring `internal/lib/email/tasks.go`):
    ```go
    const TaskCleanupInvites = "invite:cleanup"
@@ -215,7 +217,7 @@ for _, t := range tasks {
 }
 ```
 
-**This is a Go-API-only capability — there is no HTTP route for it, deliberately.** Archived task payloads can contain PII (e.g. the welcome-email task's recipient address), and this codebase has no auth yet. Reading the DLQ today means writing a small script, a debug command, or a REPL-style call — not a `curl`. Once real auth exists, an admin-gated HTTP route can wrap this same method.
+**This is a Go-API-only capability — there is no HTTP route for it, deliberately.** Archived task payloads can contain PII (e.g. an email task's recipient address), and this codebase has no auth yet. Reading the DLQ today means writing a small script, a debug command, or a REPL-style call — not a `curl`. Once real auth exists, an admin-gated HTTP route can wrap this same method.
 
 ## Testing a handler or a producer
 
@@ -237,8 +239,8 @@ You don't need to do anything special when adding a job — shutdown is handled 
 |---|---|
 | The queue/worker singleton (`Init`/`Get`/`Close`) | `internal/services/asyncprocessor/job.go` |
 | The router (`Router`, `Handle`) | `internal/services/asyncprocessor/router.go` |
-| Welcome-email task type, payload, producer, handler | `internal/lib/email/tasks.go` |
+| A job's task type, payload, producer, handler (the welcome-email example) | `internal/lib/email/tasks.go` in EXAMPLE.md step 5 — not in the source tree |
 | Which job kinds exist — building handler deps + `router.Handle` calls | `internal/services/registerasynctasks.go` (`NewJobRouter`) |
 | Starting the queue with the built router | `cmd/main.go`, inside `start()` |
-| Example of a service enqueuing a task | `internal/services/user/user.go` (`enqueueWelcomeEmail`) |
+| Example of a service enqueuing a task | EXAMPLE.md step 4 (`enqueueWelcomeEmail` in the User service) — not in the source tree |
 | Reading the DLQ (`ListArchivedTasks`) | `internal/services/asyncprocessor/inspector.go` |

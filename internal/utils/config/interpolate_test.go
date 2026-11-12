@@ -120,10 +120,10 @@ func TestInterpolateMap(t *testing.T) {
 	})
 
 	t.Run("plain_string_unchanged", func(t *testing.T) {
-		input := map[string]any{"name": "golang-boilerplate"}
+		input := map[string]any{"name": "example-app"}
 		result, err := interpolateMap(input)
 		require.NoError(t, err)
-		assert.Equal(t, "golang-boilerplate", result["name"])
+		assert.Equal(t, "example-app", result["name"])
 	})
 
 	t.Run("nested_map_recurses", func(t *testing.T) {

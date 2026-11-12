@@ -40,7 +40,7 @@ func TestInit_ErrorsWhenAlreadyInitialised(t *testing.T) {
 	setInstance(t, &Redis{})
 
 	// The double-init check precedes dialing, so no network is touched.
-	cfg := &config.Config{RedisConfig: config.RedisConfig{Addr: "localhost:6379"}}
+	cfg := &config.Config{Redis: config.RedisConfig{Addr: "localhost:6379"}}
 	_, err := Init(context.Background(), cfg, zerolog.Nop())
 	require.ErrorContains(t, err, "Init called more than once")
 }

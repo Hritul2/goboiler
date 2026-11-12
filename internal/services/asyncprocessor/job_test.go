@@ -42,7 +42,7 @@ func TestInit_ErrorsWhenAlreadyInitialised(t *testing.T) {
 
 	// The double-init check precedes fetching the shared redis client, so
 	// redis.Init need not have run for this assertion.
-	cfg := &config.Config{RedisConfig: config.RedisConfig{Addr: "localhost:6379"}}
+	cfg := &config.Config{Redis: config.RedisConfig{Addr: "localhost:6379"}}
 	_, err := Init(context.Background(), cfg, zerolog.Nop(), NewRouter())
 	require.ErrorContains(t, err, "Init called more than once")
 }

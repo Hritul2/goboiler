@@ -97,3 +97,17 @@ func TestRouter_Handle_RecordsTaskMetrics(t *testing.T) {
 	assert.True(t, foundCounter, "task.processed counter must be recorded")
 	assert.True(t, foundHistogram, "task.duration_ms histogram must be recorded")
 }
+
+// A project with no jobs yet registers nothing. Init hands router.mux to
+// asynq.Server.Start, whose only precondition is a non-nil handler (checked
+// against the asynq source), so an empty Router must still carry a usable
+// mux, and a task of any type must fail cleanly rather than panic.
+func TestRouter_EmptyRouterIsUsableByStart(t *testing.T) {
+	r := NewRouter()
+
+	var h asynq.Handler = r.mux
+	require.NotNil(t, h)
+
+	err := r.mux.ProcessTask(context.Background(), asynq.NewTask("anything", nil))
+	require.Error(t, err)
+}

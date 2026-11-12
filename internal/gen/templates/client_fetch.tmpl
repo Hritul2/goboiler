@@ -1,0 +1,56 @@
+{{- define "clientKindNote"}}Client kind: fetch (uses the global fetch; no extra runtime dependency).{{end -}}
+
+{{- define "clientImports"}}import { z } from "zod"{{end -}}
+
+{{- define "clientOptions"}}export interface ClientOptions {
+  /** Origin of the API, e.g. "https://api.example.com". A trailing slash is ignored. */
+  baseUrl: string
+  /** Custom fetch implementation. Defaults to the global fetch. */
+  fetch?: typeof fetch
+  /** Extra headers sent with every request, or a function returning them (e.g. to attach an Authorization header). */
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>)
+}{{end -}}
+
+{{- define "clientTransport"}}async function toApiError(res: Response): Promise<ApiError> {
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    body = undefined
+  }
+  const parsed = ApiErrorSchema.safeParse(body)
+  if (parsed.success) {
+    return new ApiError(res.status, parsed.data.code, parsed.data.message, parsed.data.fields)
+  }
+  return new ApiError(res.status, "UNKNOWN", res.statusText || `HTTP ${res.status}`)
+}
+
+export function createClient(options: ClientOptions) {
+  const baseUrl = options.baseUrl.replace(/\/+$/, "")
+  const doFetch: typeof fetch = options.fetch ?? ((...args) => fetch(...args))
+
+  async function call<S extends z.ZodType>(path: string, input: unknown, schema: S): Promise<z.infer<S>> {
+    const extra = typeof options.headers === "function" ? await options.headers() : options.headers
+    const headers = new Headers(extra)
+    headers.set("Content-Type", "application/json")
+
+    let res: Response
+    try {
+      res = await doFetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(input),
+      })
+    } catch (e) {
+      // No response at all (offline, DNS, CORS, a failing custom fetch): same shape as the axios client.
+      // Aborts are the caller's own doing and are rethrown unchanged.
+      if (e instanceof Error && e.name === "AbortError") {
+        throw e
+      }
+      throw new ApiError(0, "NETWORK_ERROR", e instanceof Error && e.message ? e.message : "network error")
+    }
+    if (!res.ok) {
+      throw await toApiError(res)
+    }
+    return schema.parse(await res.json())
+  }{{end -}}

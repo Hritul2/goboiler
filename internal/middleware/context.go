@@ -12,7 +12,7 @@ const loggerKey = "logger"
 // a valid span is active (via Tracing/otelgin having already run), trace_id
 // and span_id for log/trace correlation — and stores it on the gin context.
 // log is the boot-time base logger, closed over like
-// email.NewWelcomeEmailHandler's factory pattern.
+// the job-handler factories' pattern (docs/EXAMPLE.md step 5).
 func RequestLogger(log zerolog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := log.With().Str("request_id", RequestIDFromContext(c))

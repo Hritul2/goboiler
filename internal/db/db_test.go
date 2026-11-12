@@ -52,7 +52,7 @@ func TestGetMongo_PanicsWhenNotMongo(t *testing.T) {
 func TestInit_ErrorsWhenAlreadyInitialised(t *testing.T) {
 	setInstance(t, fakeDB{})
 
-	cfg := &config.Config{DbConfig: config.DbConfig{
+	cfg := &config.Config{DB: config.DbConfig{
 		Uri: "mongodb://localhost:27017", Name: "t",
 		MaxOpenConns: 1, MaxIdleConns: 1, ConnMaxLifetime: 1, ConnMaxIdleTime: 1,
 	}}

@@ -50,14 +50,14 @@ func Init(ctx context.Context, cfg *config.Config, log zerolog.Logger) (Database
 		return nil, fmt.Errorf("db: Init called more than once")
 	}
 
-	m, err := newMongo(ctx, &cfg.DbConfig, log)
+	m, err := newMongo(ctx, &cfg.DB, log)
 	if err != nil {
 		return nil, err
 	}
 
 	// Postgres (future): swap the active store by replacing the block above with
 	//
-	//	p, err := newPostgres(ctx, &cfg.DbConfig, log)
+	//	p, err := newPostgres(ctx, &cfg.DB, log)
 	//	if err != nil {
 	//		return nil, err
 	//	}
