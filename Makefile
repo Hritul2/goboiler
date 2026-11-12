@@ -15,7 +15,7 @@ OUT       ?= gen/ts
 
 .DEFAULT_GOAL := help
 
-.PHONY: help dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
+.PHONY: help setup dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
 
 # Self-documenting help: any target line carrying a trailing `## description`
 # is listed; `##@ Group` lines become section headers; a line starting with
@@ -51,6 +51,13 @@ init: ## Rename module + project for a new project: make init MODULE=<module-pat
 # git, no pre-commit/lefthook framework needed for a pure-Go repo).
 install-hooks: ## Point git at the committed .githooks directory
 	git config core.hooksPath .githooks
+
+# Creates the untracked local files from their committed examples, only when
+# they do not exist yet (never overwrites). Plain `[ -f ] || cp` rather than
+# `cp -n`, whose exit status differs between BSD and coreutils 9.x.
+setup: ## Create .env and configs/config.local.json from their examples (never overwrites)
+	@[ -f .env ] || { cp .env.example .env && echo "created .env"; }
+	@[ -f configs/config.local.json ] || { cp configs/config.local.example.json configs/config.local.json && echo "created configs/config.local.json"; }
 
 ##@ Run
 
