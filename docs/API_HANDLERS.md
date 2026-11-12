@@ -426,7 +426,7 @@ is in [EXAMPLE.md step 10](EXAMPLE.md#step-10--a-clerk-webhook-that-syncs-users)
 ```
 make help                       # list every make target with a one-line description
 make gen                        # writes gen/ts/<version>/{schemas,client,hooks,index}.ts (fetch client)
-make gen GEN_FLAGS=--axios      # same, but client.ts is axios-based
+make gen-axios                  # same, but client.ts is axios-based (= make gen GEN_FLAGS=--axios)
 make gen OUT=../web/src/api     # write somewhere else (e.g. straight into a frontend repo)
 make gen-check                  # regenerates, fails if OUT (default gen/ts) differs from what's committed
 make lint                       # golangci-lint run
@@ -434,10 +434,11 @@ make check                      # fmt-check + lint + test + gen-check (CI / pre-
 ```
 
 **Client kinds.** The default `client.ts` uses the global `fetch` (no extra
-dependency). `--axios` (flag of `cmd/gen`, passed through `GEN_FLAGS`) generates
-an axios-based `client.ts` instead. Only `client.ts` differs: `schemas.ts`,
-`hooks.ts`, `index.ts` and the public surface (`createClient`, one function per
-endpoint with identical signatures, `ApiError`, `Client`) are byte-identical, so
+dependency). `make gen-axios` (shorthand for `make gen GEN_FLAGS=--axios`; the
+`--axios` flag of `cmd/gen`) generates an axios-based `client.ts` instead.
+Only `client.ts` differs: `schemas.ts`, `hooks.ts`, `index.ts` and the public
+surface (`createClient`, one function per endpoint with identical signatures,
+`ApiError`, `Client`) are byte-identical, so
 switching is a regenerate plus changing the `createClient` options
 ([§10](#10-using-the-client-in-a-frontend)). The file header names the kind and
 the command that regenerates it.
@@ -445,8 +446,11 @@ the command that regenerates it.
 **Pinning flags for a project.** `GEN_FLAGS` and `OUT` are `?=` variables at the
 top of the `Makefile`; to make axios (or another `OUT`) the project default, set
 `GEN_FLAGS := --axios` there. `make gen-check` uses the same variables, so CI and
-developers stay in step. `go run ./cmd/gen -out gen/ts -axios` is the underlying
-command.
+developers stay in step. `make gen-axios` does *not* change those variables: it
+is a one-off, so if you commit an axios client without pinning `GEN_FLAGS`,
+`make gen-check` regenerates a fetch client and reports drift. Pin it (or pass
+`GEN_FLAGS=--axios` to `gen-check`) when axios is the project choice.
+`go run ./cmd/gen -out gen/ts -axios` is the underlying command.
 
 A fresh checkout has no functions, so `gen/ts/v1` is a valid client with zero
 functions (it compiles even under `noUnusedLocals`); it fills in as you add
@@ -513,7 +517,7 @@ try {
 }
 ```
 
-### axios variant (`make gen GEN_FLAGS=--axios`)
+### axios variant (`make gen-axios`)
 
 Same functions, `ApiError` and hooks; only the `createClient` options differ.
 Pass either `baseURL` or your own axios instance (or both; an explicit `baseURL`

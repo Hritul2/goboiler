@@ -15,7 +15,7 @@ OUT       ?= gen/ts
 
 .DEFAULT_GOAL := help
 
-.PHONY: help dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-check check
+.PHONY: help dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
 
 # Self-documenting help: any target line carrying a trailing `## description`
 # is listed; `##@ Group` lines become section headers; a line starting with
@@ -100,6 +100,13 @@ gen: ## Regenerate the TypeScript client into OUT (default gen/ts)
 ## make gen GEN_FLAGS=--axios      axios-based client.ts instead of fetch
 ## make gen OUT=../web/src/api     write straight into a frontend repo
 	go run ./cmd/gen -out $(OUT) $(GEN_FLAGS)
+
+# Shortcut for `make gen GEN_FLAGS=--axios`. OUT still applies. Note that
+# gen-check uses GEN_FLAGS, so if you rely on the axios client, pin
+# GEN_FLAGS := --axios above (or pass it to gen-check) to keep CI consistent.
+gen-axios: ## Regenerate the TypeScript client with an axios-based client.ts
+## make gen-axios OUT=../web/src/api
+	@$(MAKE) --no-print-directory gen OUT="$(OUT)" GEN_FLAGS="--axios"
 
 # CI guard: regenerate, then fail if $(OUT) differs from what is committed
 # (modified files via git diff, brand-new files via the untracked check,

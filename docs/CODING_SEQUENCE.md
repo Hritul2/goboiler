@@ -669,7 +669,7 @@ per-endpoint middleware, `/api/v2`, webhook pattern, frontend usage:
 ### The generator pipeline (`make gen` → `go run ./cmd/gen -out gen/ts`)
 
 1. `cmd/gen/main.go` parses `-out` and `-axios` (client kind: fetch by
-   default, axios with the flag; see `make gen GEN_FLAGS=--axios`), builds the handler tree with **nil
+   default, axios with the flag; see `make gen-axios`), builds the handler tree with **nil
    dependencies** — `handler.New(nil, nil, &services.Services{}, zerolog.Nop())`
    — and takes `router.APIVersions(h)`, the same list `router.New` mounts.
    No config, DB or Redis is touched; handlers are never called.
