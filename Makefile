@@ -15,7 +15,7 @@ OUT       ?= gen/ts
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup ts-check dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
+.PHONY: help setup ts-check init-smoke dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
 
 # Self-documenting help: any target line carrying a trailing `## description`
 # is listed; `##@ Group` lines become section headers; a line starting with
@@ -94,6 +94,13 @@ test-cover: ## Run unit tests and print per-function coverage
 
 ts-check: ## Type-check generated TS clients (needs pnpm)
 	./scripts/ts-check.sh
+
+# Boilerplate-only: scripts/init-smoke.sh is deleted by `make init`, and so is
+# this target with it.
+ifneq ($(wildcard scripts/init-smoke.sh),)
+init-smoke: ## (boilerplate only) Prove make init on a scratch copy
+	./scripts/init-smoke.sh
+endif
 
 # Everything CI (and a pre-push run) should pass: formatting, lint, unit
 # tests, and generated-client drift.
