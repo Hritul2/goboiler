@@ -15,7 +15,7 @@ OUT       ?= gen/ts
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
+.PHONY: help setup ts-check dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
 
 # Self-documenting help: any target line carrying a trailing `## description`
 # is listed; `##@ Group` lines become section headers; a line starting with
@@ -91,6 +91,9 @@ test-v: ## Run unit tests with verbose output
 test-cover: ## Run unit tests and print per-function coverage
 	go test ./internal/... -coverprofile=coverage.out
 	go tool cover -func=coverage.out
+
+ts-check: ## Type-check generated TS clients (needs pnpm)
+	./scripts/ts-check.sh
 
 # Everything CI (and a pre-push run) should pass: formatting, lint, unit
 # tests, and generated-client drift.
