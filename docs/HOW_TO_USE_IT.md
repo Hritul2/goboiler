@@ -196,7 +196,8 @@ is graceful (see `BOOT_SEQUENCE.md` step 12).
 ### 1.6 Generate the TypeScript client
 
 ```sh
-make gen                       # writes gen/ts/v1/{schemas,client,hooks,index}.ts
+make gen                       # writes gen/ts/v1/{schemas,client,hooks,index}.ts (fetch client)
+make gen-axios                 # same, but an axios-based client.ts
 ```
 
 This needs no database or config. Until you add a function the generated client
@@ -436,7 +437,7 @@ Each entry: **chose** → **why** → **costs you** → **to change**.
 ### Generated client: fetch (default) or axios
 
 - **Chose:** `make gen` produces a `fetch`-based `client.ts` (no extra
-  dependency); `make gen GEN_FLAGS=--axios` produces an axios-based one.
+  dependency); `make gen-axios` (= `make gen GEN_FLAGS=--axios`) produces an axios-based one.
   Only `client.ts` differs — `schemas.ts`, `hooks.ts`, `index.ts` and the
   public surface (`createClient`, function names and signatures, `ApiError`,
   `Client`) are identical.
@@ -448,9 +449,11 @@ Each entry: **chose** → **why** → **costs you** → **to change**.
   timeout) becomes an `ApiError` with status `0` and code `NETWORK_ERROR`;
   cancellations are rethrown unchanged. axios is a peer dependency
   (`axios@^1`).
-- **To change:** pass `GEN_FLAGS=--axios` per call, or pin it for the project by
-  setting `GEN_FLAGS := --axios` at the top of the Makefile (then `make gen`
-  and `make gen-check` both use it). Usage: `API_HANDLERS.md` §10.
+- **To change:** run `make gen-axios` (or pass `GEN_FLAGS=--axios`) per call, or
+  pin it for the project by setting `GEN_FLAGS := --axios` at the top of the
+  Makefile (then `make gen` and `make gen-check` both use it). If you commit an
+  axios client, pin it: `make gen-axios` is one-off, and an unpinned
+  `make gen-check` would regenerate fetch and fail. Usage: `API_HANDLERS.md` §10.
 
 ### golangci-lint v2
 
@@ -493,7 +496,7 @@ generated with `--axios`.
 ### Option A — write straight into the frontend checkout
 
 ```sh
-make gen OUT=../web/src/api            # add GEN_FLAGS=--axios if wanted
+make gen OUT=../web/src/api            # or: make gen-axios OUT=../web/src/api
 ```
 
 - **Good:** nothing to copy; the frontend sees the change instantly during

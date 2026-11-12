@@ -2582,7 +2582,7 @@ The router tests mount the real versions, so a bad declaration fails
 
 ```sh
 make gen                        # fetch client  -> gen/ts/v1/{schemas,client,hooks,index}.ts
-make gen GEN_FLAGS=--axios      # axios client  -> same files; only client.ts differs
+make gen-axios                  # axios client  -> same files; only client.ts differs
 ```
 
 Commit `gen/ts` (CI's `make gen-check` fails if it is stale) or send it to your
@@ -2657,7 +2657,7 @@ export async function signUp(email: string, name: string, password: string) {
 }
 ```
 
-### Using the axios client (`GEN_FLAGS=--axios`)
+### Using the axios client (`make gen-axios`)
 
 Pass your own axios instance so its interceptors (auth tokens, retries) apply, or
 just a `baseURL`. HTTP errors become an `ApiError` from the response body;

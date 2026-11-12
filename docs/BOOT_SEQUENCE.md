@@ -280,7 +280,8 @@ its own, much shorter sequence. It needs **no config, database, Redis,
 network or running server**.
 
 1. **Flags** — `-out` (default `gen/ts`; `make gen OUT=...`): the directory
-   each version is written under; `-axios`/`--axios` (`make gen GEN_FLAGS=--axios`):
+   each version is written under; `-axios`/`--axios` (`make gen-axios`, or
+   `make gen GEN_FLAGS=--axios`):
    generate an axios-based `client.ts` instead of the default fetch one (the
    other three files are identical in both modes).
 2. **Handler tree with nil deps** — `handler.New(nil, nil, &services.Services{}, zerolog.Nop())`.
@@ -309,7 +310,9 @@ network or running server**.
 8. **CI guard** — `make gen-check` re-runs the generator (same `OUT` and
    `GEN_FLAGS`) and fails if `OUT` (default `gen/ts`) differs from the committed
    tree or contains untracked files; it refuses an `OUT` outside this repo.
-   `make check` includes it. Generated output is committed.
+   `make check` includes it. Generated output is committed. `make gen-axios`
+   does not set `GEN_FLAGS`, so a committed axios client needs
+   `GEN_FLAGS := --axios` pinned in the Makefile for `gen-check` to agree.
 
 Details, file map and the golden-file tests: CODING_SEQUENCE.md step 24 and
 `docs/API_HANDLERS.md` §9.
