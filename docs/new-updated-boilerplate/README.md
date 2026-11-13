@@ -57,7 +57,7 @@ metrics and logs (D7).
 
 ## Open questions (answer before the phase that needs them)
 
-- **Phase 0:** should `configs/config.local.json` be untracked, gitignored and replaced by a committed `config.local.example.json`? (Recommended: yes. Today the tracked override also applies in CI and production.)
+- **Phase 0 (resolved: yes, shipped in Phase 0a):** should `configs/config.local.json` be untracked, gitignored and replaced by a committed `config.local.example.json`? (Recommended: yes. Today the tracked override also applies in CI and production.)
 - **Phase 1:** one repository with a nested `kit/` module (tags like `kit/v0.3.0`), or a separate repository? (Recommended: nested module, same repo.)
 - **Phase 2:** MongoDB transactions need a replica set, even with one node. Is it OK for local and test Mongo to run as a single-node replica set? (Recommended: yes.)
 - **Phase 7:** local observability UI: the all-in-one `grafana/otel-lgtm` image, or separate Jaeger + Prometheus + Grafana containers? (Recommended: `otel-lgtm` locally.)

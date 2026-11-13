@@ -83,8 +83,13 @@ install it from <https://golangci-lint.run/docs/welcome/install/>.
 ### 1.3 Configure
 
 ```sh
-cp .env.example .env     # .env is gitignored; never commit real secrets
+make setup    # creates .env and configs/config.local.json from their examples; never overwrites
 ```
+
+`.env` and `configs/config.local.json` are gitignored; never commit real
+secrets. (`make setup` is the same as `cp .env.example .env` and
+`cp configs/config.local.example.json configs/config.local.json`, each only if
+the target does not exist yet.)
 
 How config works (`internal/utils/config`); the layering rules are in
 [Config files and priority](#config-files-and-priority) below:
@@ -150,15 +155,18 @@ How the override merges (step 2):
   introduce them too.
 - Validation runs on the merged config.
 
-The shipped `configs/config.local.json` contains only what differs from the
-base: `env_file_name` (`.env.local`) and `server.cors_allow_credentials: true`.
+The shipped `configs/config.local.example.json` contains only what differs
+from the base: `env_file_name` (`.env.local`) and
+`server.cors_allow_credentials: true`. `make setup` copies it to
+`configs/config.local.json`, which is **gitignored**.
 
-> **Think before committing a local override.** It is picked up automatically
-> wherever the repository is checked out — CI, a Docker build, production. If
-> yours loosens anything (as CORS credentials above does), prefer to gitignore
-> `configs/config.local.json` and commit a `configs/config.local.example.json`
-> that each developer copies, so production never sees it. goboiler ships it
-> tracked; that choice is yours.
+> **The override is per machine, on purpose.** It is picked up automatically
+> wherever the file exists, so a committed one would apply in CI, a Docker
+> build and production too. goboiler therefore commits only the example; if
+> your project needs an override everywhere, commit your own file under another
+> name and point `LoadConfig` at it. If you upgrade an existing clone, git
+> deletes the previously tracked `configs/config.local.json` on pull: run
+> `make setup` again.
 
 Real example of the priority: `SERVER_PORT=9000 make dev` beats `.env` and
 `.env.local`; `.env.local` beats `.env`; `config.local.json` beats `config.json`.
@@ -208,8 +216,14 @@ How the files get to a frontend is
 ### 1.7 Before every push
 
 ```sh
-make check    # fmt-check + lint + test + gen-check — what CI should run
+make check    # fmt-check + lint + test + gen-check — what CI runs
+make ts-check # type-check the generated TS clients (needs pnpm); CI runs it too
 ```
+
+CI (`.github/workflows/ci.yml`) runs both on every push and pull request to
+`main`. `.github/workflows/boilerplate.yml` and `scripts/init-smoke.sh` (which
+prove `make init` on Linux and macOS) exist only in the boilerplate; `make init`
+deletes them.
 
 ---
 
@@ -379,10 +393,25 @@ Each entry: **chose** → **why** → **costs you** → **to change**.
   places a value can come from (`PrintConfig` at boot says which files were
   used). Arrays replace rather than extend, which surprises people who expect
   a union.
-- **To change:** keep `config.local.json` out of git (gitignore it, commit a
-  `config.local.example.json`); or point `LoadConfig` at another base path
+- **Done for you:** `configs/config.local.json` is gitignored and
+  `configs/config.local.example.json` is committed (`make setup` copies it).
+- **To change:** point `LoadConfig` at another base path
   (`LoadConfig(&path)`; its override is `<name>.local.json` beside it); or drop
   the override layer by deleting the file.
+
+### CI: GitHub Actions running `make check`
+
+- **Chose:** `.github/workflows/ci.yml` runs `make check` (fmt-check, lint,
+  tests, gen-check) and `scripts/ts-check.sh` (strict `tsc` over the generated
+  fetch and axios clients, for the skeleton and the generator's golden
+  fixtures). Actions are pinned by commit SHA; golangci-lint is pinned to the
+  version in the workflow.
+- **Why:** a red check on the pull request is cheaper than a broken `main`.
+- **Costs you:** the TypeScript check installs a few npm packages
+  (`.github/ts-check/`, pnpm, lockfile committed) in CI only; they are not
+  dependencies of your application. Bump them deliberately.
+- **To change:** edit `.github/workflows/ci.yml`; delete the `ts` job if you
+  have no TypeScript consumers.
 
 ### Error responses carry `fields`
 

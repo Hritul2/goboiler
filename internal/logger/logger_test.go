@@ -53,6 +53,8 @@ func TestNew_levelFollowsLogLevel_notEnv(t *testing.T) {
 }
 
 func TestNew_timeFieldFormat(t *testing.T) {
+	// New("dev") creates ./log/app.log; keep it out of the source tree.
+	t.Chdir(t.TempDir())
 	_, closer := logger.New(cfg("dev", "debug"))
 	t.Cleanup(func() { _ = closer() })
 	assert.Equal(t, time.RFC3339, zerolog.TimeFieldFormat)

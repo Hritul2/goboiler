@@ -308,10 +308,9 @@ func TestSourcesReport(t *testing.T) {
 `, got)
 }
 
-// TestShippedConfigsLoadAndMerge loads the repository's real configs/ files
-// with a complete environment, so a typo in config.json or config.local.json
-// (or a key the override sets that the base lacks) fails here, not at boot.
-func TestShippedConfigsLoadAndMerge(t *testing.T) {
+// shippedEnv sets a complete environment so the shipped configs load.
+func shippedEnv(t *testing.T) {
+	t.Helper()
 	for k, v := range map[string]string{
 		"APP_ENV": "dev", "APP_VERSION": "0.0.0-test", "LOG_LEVEL": "info",
 		"SERVER_PORT": "8080", "CORS_ALLOWED_ORIGINS": "http://localhost:3000",
@@ -325,29 +324,49 @@ func TestShippedConfigsLoadAndMerge(t *testing.T) {
 	} {
 		t.Setenv(k, v)
 	}
-	base := filepath.Join("..", "..", "..", "configs", "config.json")
+}
+
+// copyShipped copies configs/<src> to dir/<dst>.
+func copyShipped(t *testing.T, dir, src, dst string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "configs", src))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, dst), b, 0o644))
+}
+
+// TestShippedBaseConfigLoads loads the repository's real configs/config.json
+// on its own (copied to a temp dir, so a developer's own config.local.json
+// cannot change the outcome), so a typo in it fails here, not at boot.
+func TestShippedBaseConfigLoads(t *testing.T) {
+	shippedEnv(t)
+	dir := t.TempDir()
+	copyShipped(t, dir, "config.json", "config.json")
+	base := filepath.Join(dir, "config.json")
 
 	cfg, err := LoadConfig(&base)
 	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.Server.Port)
-	assert.Equal(t, 30, cfg.Server.ReadTimeout, "base value that the override does not touch")
+	assert.Equal(t, 30, cfg.Server.ReadTimeout)
+	assert.Equal(t, []string{base}, cfg.Sources().ConfigFiles)
+}
 
-	// The override is optional (a project may gitignore it); when present it
-	// must be listed after the base and apply on top of it.
+// TestShippedLocalExampleMerges loads config.json merged with
+// config.local.example.json (installed as config.local.json by `make setup`),
+// so the example override stays valid and keeps working.
+func TestShippedLocalExampleMerges(t *testing.T) {
+	shippedEnv(t)
+	dir := t.TempDir()
+	copyShipped(t, dir, "config.json", "config.json")
+	copyShipped(t, dir, "config.local.example.json", "config.local.json")
+	base := filepath.Join(dir, "config.json")
+
+	cfg, err := LoadConfig(&base)
+	require.NoError(t, err)
+
 	files := cfg.Sources().ConfigFiles
-	require.NotEmpty(t, files)
+	require.Len(t, files, 2)
 	assert.Equal(t, base, files[0])
-	if len(files) == 2 {
-		local := localPathFor(base)
-		assert.Equal(t, local, files[1])
-		raw, _, err := readOptionalConfigFile(local)
-		require.NoError(t, err)
-		// Whatever the override file sets for this key is what wins.
-		section, _ := raw["config"].(map[string]any)
-		server, _ := section["server"].(map[string]any)
-		if v, ok := server["cors_allow_credentials"].(bool); ok {
-			assert.Equal(t, v, cfg.Server.CORSAllowCredentials)
-		}
-	}
+	assert.Equal(t, localPathFor(base), files[1])
+	assert.True(t, cfg.Server.CORSAllowCredentials)
 }

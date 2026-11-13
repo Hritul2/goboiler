@@ -19,6 +19,10 @@
 #       README.md                 the title line
 #     Docs that describe the boilerplate itself are left alone.
 #
+# It also deletes the files that only make sense in the boilerplate repository
+# itself: .github/workflows/boilerplate.yml and scripts/init-smoke.sh (the CI
+# proof that this very script works).
+#
 # Then it runs `go mod tidy` and `make gen`.
 #
 # Safety:
@@ -123,6 +127,10 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
 if [ -n "$(git status --porcelain -- .)" ] && [ "${FORCE:-}" != "1" ]; then
   die "the working tree has uncommitted changes. Commit or stash them first (so 'git diff' shows exactly what init changed), or re-run with FORCE=1."
 fi
+
+# Boilerplate-only files: the init-smoke CI job and its script test this
+# script, which a generated project no longer has any use for.
+rm -f .github/workflows/boilerplate.yml scripts/init-smoke.sh
 
 echo "init: module  $OLD_MODULE -> $NEW_MODULE"
 echo "init: project $OLD_NAME -> $NAME  (database name: $DBNAME)"

@@ -15,7 +15,7 @@ OUT       ?= gen/ts
 
 .DEFAULT_GOAL := help
 
-.PHONY: help dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
+.PHONY: help setup ts-check init-smoke dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
 
 # Self-documenting help: any target line carrying a trailing `## description`
 # is listed; `##@ Group` lines become section headers; a line starting with
@@ -52,6 +52,13 @@ init: ## Rename module + project for a new project: make init MODULE=<module-pat
 install-hooks: ## Point git at the committed .githooks directory
 	git config core.hooksPath .githooks
 
+# Creates the untracked local files from their committed examples, only when
+# they do not exist yet (never overwrites). Plain `[ -f ] || cp` rather than
+# `cp -n`, whose exit status differs between BSD and coreutils 9.x.
+setup: ## Create .env and configs/config.local.json from their examples (never overwrites)
+	@[ -f .env ] || { cp .env.example .env && echo "created .env"; }
+	@[ -f configs/config.local.json ] || { cp configs/config.local.example.json configs/config.local.json && echo "created configs/config.local.json"; }
+
 ##@ Run
 
 dev: ## Run the server from source (go run)
@@ -84,6 +91,16 @@ test-v: ## Run unit tests with verbose output
 test-cover: ## Run unit tests and print per-function coverage
 	go test ./internal/... -coverprofile=coverage.out
 	go tool cover -func=coverage.out
+
+ts-check: ## Type-check generated TS clients (needs pnpm)
+	./scripts/ts-check.sh
+
+# Boilerplate-only: scripts/init-smoke.sh is deleted by `make init`, and so is
+# this target with it.
+ifneq ($(wildcard scripts/init-smoke.sh),)
+init-smoke: ## (boilerplate only) Prove make init on a scratch copy
+	./scripts/init-smoke.sh
+endif
 
 # Everything CI (and a pre-push run) should pass: formatting, lint, unit
 # tests, and generated-client drift.

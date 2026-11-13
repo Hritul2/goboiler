@@ -649,7 +649,9 @@ rather than a cryptic "command not found". Activated per-clone via
 `make install-hooks` (`git config core.hooksPath .githooks` — native git,
 no Python `pre-commit`/`lefthook` framework needed for a pure-Go repo).
 `Makefile` also gains `lint` and `fmt-check` targets for running the same
-checks outside the hook (CI, manual use).
+checks outside the hook (CI, manual use). CI itself
+(`.github/workflows/ci.yml`) runs `make check` plus a TypeScript type-check of
+the generated clients (`make ts-check`) on every push and pull request.
 
 ## 24. Typed RPC Layer + Generated TypeScript Client
 
