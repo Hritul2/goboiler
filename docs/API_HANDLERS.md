@@ -17,7 +17,10 @@ repos/deployables — the only thing that crosses the boundary is the generated
 ## There is no example domain in the code
 
 The repository ships the framework and **no domain code**: `v1` has no
-functions, the job queue has no jobs, there are no users. The pattern is
+functions, the job queue has no jobs, there are no users. (A compiled User
+example does exist, but outside the application: `examples/user`, laid over the
+skeleton only by `make example-check` and `make example-try`, and deleted by
+`make init` unless `KEEP_EXAMPLES=1`.) The pattern is
 documented end to end — model, repository, service, welcome-email job, DTOs,
 handler, endpoints, registration, generated client, a Clerk webhook, `/api/v2` —
 with full, tested code at every step in **[EXAMPLE.md](EXAMPLE.md)**. The
@@ -430,7 +433,7 @@ make gen-axios                  # same, but client.ts is axios-based (= make gen
 make gen OUT=../web/src/api     # write somewhere else (e.g. straight into a frontend repo)
 make gen-check                  # regenerates, fails if OUT (default gen/ts) differs from what's committed
 make lint                       # golangci-lint run
-make check                      # fmt-check + lint + test + gen-check (CI / pre-push)
+make check                      # fmt-check + lint + test + gen-check (+ example-check, example-docs-check while examples/ exists) (CI / pre-push)
 ```
 
 **Client kinds.** The default `client.ts` uses the global `fetch` (no extra

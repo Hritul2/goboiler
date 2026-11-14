@@ -15,7 +15,11 @@ OUT       ?= gen/ts
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup ts-check init-smoke dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check
+# Non-empty when the compiled example (examples/user) is present; make init
+# deletes it, and the example-* targets and their part in `make check` with it.
+HAS_EXAMPLES := $(wildcard examples/user)
+
+.PHONY: help setup ts-check init-smoke dev build run tidy fmt fmt-check lint install-hooks test test-v test-cover init gen gen-axios gen-check check example-try example-check example-docs example-docs-check
 
 # Self-documenting help: any target line carrying a trailing `## description`
 # is listed; `##@ Group` lines become section headers; a line starting with
@@ -25,7 +29,7 @@ OUT       ?= gen/ts
 
 help: ## Show this help (default target)
 	@awk 'BEGIN { FS = ":.*## "; printf "Usage: make <target> [VAR=value]\n" } \
-		/^[a-zA-Z0-9_-]+:.*## / { printf "  %-14s %s\n", $$1, $$2 } \
+		/^[a-zA-Z0-9_-]+:.*## / { printf "  %-20s %s\n", $$1, $$2 } \
 		/^##@/ { printf "\n%s\n", substr($$0, 5) } \
 		/^## / { printf "      %s\n", substr($$0, 4) }' $(MAKEFILE_LIST)
 
@@ -43,9 +47,10 @@ INIT_NAME := $(if $(filter command line,$(origin NAME)),$(NAME))
 # of MODULE. See scripts/init.sh for exactly what it changes.
 #   make init MODULE=github.com/you/fruits
 #   make init MODULE=github.com/you/fruits NAME=fruit-shop
-init: ## Rename module + project for a new project: make init MODULE=<module-path> [NAME=<name>] [FORCE=1]
+#   make init MODULE=github.com/you/fruits KEEP_EXAMPLES=1   # keep examples/ (see examples/README.md)
+init: ## Rename module + project for a new project: make init MODULE=<module-path> [NAME=<name>] [FORCE=1] [KEEP_EXAMPLES=1]
 	@test -n "$(MODULE)" || (echo "Usage: make init MODULE=<new-module-path> [NAME=<project-name>] [FORCE=1]" >&2 && exit 1)
-	./scripts/init.sh "$(MODULE)" "$(INIT_NAME)"
+	KEEP_EXAMPLES="$(KEEP_EXAMPLES)" ./scripts/init.sh "$(MODULE)" "$(INIT_NAME)"
 
 # Run once after cloning: points git at the committed hook script (native
 # git, no pre-commit/lefthook framework needed for a pure-Go repo).
@@ -104,7 +109,55 @@ endif
 
 # Everything CI (and a pre-push run) should pass: formatting, lint, unit
 # tests, and generated-client drift.
-check: fmt-check lint test gen-check ## Run everything CI runs: fmt-check, lint, test, gen-check
+check: fmt-check lint test gen-check $(if $(HAS_EXAMPLES),example-check example-docs-check) ## Run everything CI runs: fmt-check, lint, test, gen-check, example-check, example-docs-check
+
+##@ Example
+
+# The compiled User example (examples/user) and the page generated from it.
+# `make init` deletes examples/ (unless KEEP_EXAMPLES=1), and these targets go
+# with it. They work on a scratch copy of the working tree with the example
+# laid over it (examples/exampletool), never on the tree itself, except
+# example-docs, which rewrites docs/EXAMPLE.md.
+EXAMPLE_TOOL := go run ./examples/exampletool
+
+ifneq ($(HAS_EXAMPLES),)
+example-try: ## Skeleton + the User example in DIR, to explore: make example-try DIR=/tmp/try
+	@test -n "$(DIR)" || (echo "Usage: make example-try DIR=<empty-or-new-directory>" >&2 && exit 1)
+	$(EXAMPLE_TOOL) materialize -dst "$(DIR)"
+	cd "$(DIR)" && go run ./cmd/gen -out gen/ts && go run ./cmd/gen -axios -out gen/ts-axios
+	@echo "example-try: $(DIR) is a project with the User example; try: cd $(DIR) && go test ./..."
+
+example-check: ## Build, vet, lint, test and generate clients for skeleton + User example (scratch copy)
+	go test ./examples/exampletool/...
+	@tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/example-check.XXXXXX")" && trap 'rm -rf "$$tmp"' EXIT && set -e && \
+	$(EXAMPLE_TOOL) materialize -dst "$$tmp" && cd "$$tmp" && \
+	echo "example-check: gofmt" && { test -z "$$(gofmt -l .)" || { gofmt -l . >&2; exit 1; }; } && \
+	echo "example-check: go build" && go build ./... && \
+	echo "example-check: go vet" && go vet ./... && \
+	echo "example-check: golangci-lint" && golangci-lint run && \
+	echo "example-check: go test" && go test ./... && \
+	echo "example-check: cmd/gen (fetch, axios)" && go run ./cmd/gen -out gen/ts && go run ./cmd/gen -axios -out gen/ts-axios && \
+	echo "example-check: OK"
+
+# EXAMPLE_OUT is where example-docs writes; example-docs-check points it at a
+# temp file.
+EXAMPLE_OUT ?= docs/EXAMPLE.md
+
+example-docs: ## Regenerate docs/EXAMPLE.md from examples/user (commit the result)
+	@tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/example-docs.XXXXXX")" && trap 'rm -rf "$$tmp"' EXIT && set -e && \
+	$(EXAMPLE_TOOL) materialize -dst "$$tmp" && \
+	(cd "$$tmp" && go run ./cmd/gen -out gen/ts) && \
+	$(EXAMPLE_TOOL) docs -tree "$$tmp" -tmpl examples/user/EXAMPLE.md.tmpl -out "$(EXAMPLE_OUT)"
+
+# CI guard, like gen-check: regenerate into a temp file, then fail if
+# docs/EXAMPLE.md differs from it. Catches "changed the example but forgot make
+# example-docs". It compares files, not git state, so it also works right after
+# make init KEEP_EXAMPLES=1, before the rewrite is committed.
+example-docs-check: ## Fail if docs/EXAMPLE.md is out of date with examples/user
+	@tmp="$$(mktemp "$${TMPDIR:-/tmp}/example-docs-check.XXXXXX")" && trap 'rm -f "$$tmp"' EXIT && \
+	$(MAKE) --no-print-directory example-docs EXAMPLE_OUT="$$tmp" && \
+	{ diff -u docs/EXAMPLE.md "$$tmp" || { echo "example-docs-check: docs/EXAMPLE.md is out of date with examples/user. Run 'make example-docs' and commit the result." >&2; exit 1; }; }
+endif
 
 ##@ Codegen
 

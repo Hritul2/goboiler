@@ -33,7 +33,9 @@ jobs:
           install-only: true
       - run: make check
 
-  # Type-checks the TypeScript clients cmd/gen produces (skeleton + golden fixtures).
+  # Type-checks the TypeScript clients cmd/gen produces (skeleton + golden
+  # fixtures), then the User example's generated v1/v2 clients and the frontend
+  # snippets of docs/EXAMPLE.md.
   ts:
     runs-on: ubuntu-latest
     steps:
@@ -53,3 +55,5 @@ jobs:
           cache: pnpm
           cache-dependency-path: .github/ts-check/pnpm-lock.yaml
       - run: scripts/ts-check.sh
+      - run: make example-try DIR="$RUNNER_TEMP/ex"
+      - run: scripts/ts-check.sh --tree "$RUNNER_TEMP/ex"

@@ -17,7 +17,32 @@ from the code.
 - `log/.gitkeep` is now tracked (`.gitignore` fixed); `/output/` ignored.
 - `TestNew_timeFieldFormat` no longer writes into the source tree.
 
-Not yet shipped (Phase 0b): the compiled example (0.2 below).
+## Shipped in Phase 0b
+
+- **The compiled example**: `examples/user/_overlay/` holds the User feature as
+  files at their real destination paths (Go tools skip `_` directories, so the
+  root build never sees them). `make example-check` copies the working tree
+  (`git ls-files -co --exclude-standard`) into a scratch directory, lays the
+  overlay over it and runs gofmt, build, vet, golangci-lint, tests and `cmd/gen`
+  there. The overlay is not an `examples/user/cmd` app and `make test` does not run
+  it: a separate package cannot compile code written as files inside skeleton
+  packages.
+- **`examples/exampletool`** (standard library only, with tests): `materialize`
+  and `docs`.
+- **`docs/EXAMPLE.md` is generated** from `examples/user/EXAMPLE.md.tmpl`
+  (directives `file`, `region`, `excerpt`, `sketch`; `make example-docs`).
+  `make example-docs-check` (part of `make check`) fails if it is stale. The
+  header carries a deterministic source hash (sha256 over `examples/user/**`
+  with the module path normalised), not a date or commit, which would change on
+  every run. The Clerk webhook, a sketch before, is compiled now; the Postgres
+  block stays a sketch (`examples/user/sketches/`).
+- **`make init`** removes `examples/` unless `KEEP_EXAMPLES=1`; `docs/EXAMPLE.md`
+  stays as a marked snapshot. `init-smoke` asserts both variants, and CI runs
+  the `KEEP_EXAMPLES=1` one on Linux.
+- **CI `ts` job**: `scripts/ts-check.sh --tree` type-checks the example's
+  generated v1 and v2 clients (fetch and axios) and the frontend snippets.
+- **Make targets**: `example-try DIR=...`, `example-check`, `example-docs`,
+  `example-docs-check`, which exist only while `examples/user` does.
 
 ## Scope
 
@@ -33,8 +58,11 @@ Not yet shipped (Phase 0b): the compiled example (0.2 below).
   `make test`, `make gen`. This proves `scripts/init.sh` on Linux (GNU sed/grep).
 - Later phases add an `integration` job (Phase 8) and a `docker build` job (Phase 9).
 
-### 0.2 Compiled example instead of a drifting doc
-Today `docs/EXAMPLE.md` (≈3,370 lines) is a snapshot that nothing compiles.
+### 0.2 Compiled example instead of a drifting doc (done in 0b)
+The plan below is the original; "Shipped in Phase 0b" above says what was built
+(an overlay rather than an example app, a source hash rather than a date).
+
+Before 0b, `docs/EXAMPLE.md` (≈3,370 lines) was a snapshot that nothing compiles.
 - Restore the User feature as real code under `examples/user/` (model, repo +
   Mongo impl, validation, service, welcome-email job, DTOs/handler/endpoints,
   tests). It is wired into a small example app in `examples/user/cmd/` so it builds
@@ -43,7 +71,9 @@ Today `docs/EXAMPLE.md` (≈3,370 lines) is a snapshot that nothing compiles.
   script with `// region:` markers) so every code block is real, compiled code.
   `make example-docs` regenerates it, and `make check` fails if it is stale.
 - `make init` deletes `examples/` in a new project (optional flag `KEEP_EXAMPLES=1`).
-- The "Last updated / commit" header is written by the generator.
+- ~~The "Last updated / commit" header is written by the generator.~~ Replaced by
+  the source hash: a date or commit changes on every run, which defeats "stale
+  fails `make check`", and a commit cannot contain its own hash.
 
 ### 0.3 `config.local.json` (done in 0a)
 Approved and shipped: `git rm --cached configs/config.local.json`, add it to `.gitignore`,
