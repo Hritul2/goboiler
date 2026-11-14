@@ -47,9 +47,10 @@ INIT_NAME := $(if $(filter command line,$(origin NAME)),$(NAME))
 # of MODULE. See scripts/init.sh for exactly what it changes.
 #   make init MODULE=github.com/you/fruits
 #   make init MODULE=github.com/you/fruits NAME=fruit-shop
-init: ## Rename module + project for a new project: make init MODULE=<module-path> [NAME=<name>] [FORCE=1]
+#   make init MODULE=github.com/you/fruits KEEP_EXAMPLES=1   # keep examples/ (see examples/README.md)
+init: ## Rename module + project for a new project: make init MODULE=<module-path> [NAME=<name>] [FORCE=1] [KEEP_EXAMPLES=1]
 	@test -n "$(MODULE)" || (echo "Usage: make init MODULE=<new-module-path> [NAME=<project-name>] [FORCE=1]" >&2 && exit 1)
-	./scripts/init.sh "$(MODULE)" "$(INIT_NAME)"
+	KEEP_EXAMPLES="$(KEEP_EXAMPLES)" ./scripts/init.sh "$(MODULE)" "$(INIT_NAME)"
 
 # Run once after cloning: points git at the committed hook script (native
 # git, no pre-commit/lefthook framework needed for a pure-Go repo).
