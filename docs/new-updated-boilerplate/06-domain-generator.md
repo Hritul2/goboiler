@@ -30,7 +30,7 @@ running it twice for the same name refuses with a clear message. Every change is
 shown as a summary at the end; the project then reviews `git diff`.
 
 ## Implementation
-- A Go program in `kit` (`kit/cmd/domaingen`) using `text/template` and `go/format`; templates are the code in `examples/user` (Phase 0), with `user` replaced by a placeholder. This keeps the example, the generator and the docs in one source.
+- A Go program in `kit` (`kit/cmd/domaingen`) using `text/template` and `go/format`; templates are derived from the code in `examples/user/_overlay` (Phase 0b; each overlay file sits at its destination path, so a template path is the overlay path), with `user` replaced by a placeholder. `make init` deletes `examples/`, so the templates must be **embedded in kit** (`embed.FS`), not read from `examples/` at run time; a test (or `go generate`) keeps the embedded copies in step with the overlay. This keeps the example, the generator and the docs in one source.
 - After writing, it runs `gofmt`, `go build ./...` and the new package's tests, and prints the result.
 
 ## Done when

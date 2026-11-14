@@ -54,6 +54,18 @@ make init MODULE=github.com/you/fruits NAME=fruit-shop  # or name it explicitly
 Then it runs `go mod tidy` and `make gen`. Review with `git diff`, run
 `make check`, commit.
 
+**`examples/` is removed by default.** It holds the compiled User example that
+`EXAMPLE.md` is generated from (`make init` deletes it so a new project starts
+without a User). `EXAMPLE.md` itself stays, now as a snapshot: its provenance
+line says it is no longer generated or checked in your project, and the
+`// ADD YOUR DOMAIN` comments still point to it. To keep the example and its
+checks (`make example-docs`, `make example-check`, and their part in `make
+check`), pass `KEEP_EXAMPLES=1`:
+
+```sh
+make init MODULE=github.com/you/fruits KEEP_EXAMPLES=1
+```
+
 - **NAME** must be lowercase letters, digits and `-`, starting with a letter; it
   becomes the binary name, app name and compose project, and (with `-` → `_`)
   the database name. If you omit it, the last element of `MODULE` is used
@@ -216,7 +228,7 @@ How the files get to a frontend is
 ### 1.7 Before every push
 
 ```sh
-make check    # fmt-check + lint + test + gen-check — what CI runs
+make check    # fmt-check + lint + test + gen-check (+ the example checks while examples/ exists) — what CI runs
 make ts-check # type-check the generated TS clients (needs pnpm); CI runs it too
 ```
 
@@ -231,8 +243,16 @@ deletes them.
 
 **→ [EXAMPLE.md](EXAMPLE.md).** It builds one complete feature (`User`) from the
 model up through the generated frontend client, with the full code and a test at
-every step, matching the code as it was verified. The skeleton marks every place
-a domain plugs in:
+every step. Every code block is a real file in
+`examples/user` of the goboiler repository, compiled and tested in CI against
+the skeleton (`EXAMPLE.md` is generated from it). To try it instead of reading
+it, in the goboiler repository (before `make init`):
+
+```sh
+make example-try DIR=/tmp/user-example   # the skeleton + the User example, ready for `go test ./...`
+```
+
+The skeleton marks every place a domain plugs in:
 
 ```sh
 grep -rn "ADD YOUR DOMAIN" --include='*.go' .
