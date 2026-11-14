@@ -1,0 +1,470 @@
+# Example: one feature, end to end (User)
+
+goboiler ships **no domain code**: no users, no endpoints, no jobs. This
+document is the missing example. It builds one complete feature — `User`:
+sign-up with a hashed password, a welcome email sent by a background job, five
+typed RPC functions, a generated TypeScript client, and a Clerk webhook — one
+layer at a time, in the order you would write it, with the full code and the
+test at every step.
+
+**Where the code comes from.** Every code block below is a real file in
+`examples/user` in the goboiler repository, laid over the skeleton at the paths
+shown. CI compiles, lints and tests the result against the current skeleton, and
+regenerates this page from those files, so it cannot go stale. The one block
+that is not compiled is the **sketch** of a Postgres repository in step 2 (it
+needs a driver the skeleton does not carry).
+
+**How to use it.** Replace `User`/`user` with your entity, copy the files into
+the paths shown, and use your module path for imports (the snippets show the module path of
+this repository; `make init` rewrote it in the docs along with the code, so
+they already show yours). Each step names
+the `// ADD YOUR DOMAIN` comment in the skeleton where that step plugs in. You
+do not have to build it all: steps 1–4 and 6–8 are a complete feature; step 5
+(the job), 9 (frontend), 10 (webhook) and 11 (v2) are independent extras.
+
+| Step | What | Files |
+|---|---|---|
+| 1 | Model | `internal/models/user.go` |
+| 2 | Repository: interface, Mongo implementation | `internal/repo/user.go`, `internal/repo/mongo/user.go`, `internal/repo/repositories.go` |
+| 3 | Validation input | `internal/validation/user.go` |
+| 4 | Service | `internal/services/user/user.go` |
+| 5 | Welcome-email job | `internal/lib/email/{emails,templates,tasks}.go`, `internal/services/registerasynctasks.go` |
+| 6 | Service wiring | `internal/services/services.go` |
+| 7 | DTOs, handler, endpoints | `internal/handler/user/*.go`, `internal/handler/handlers.go` |
+| 8 | Register in the API version | `internal/router/versions.go` |
+| 9 | Generate the client, use it | `make gen`, your frontend |
+| 10 | Clerk `user.created` webhook | `internal/webhook/clerk/` |
+| 11 | Add `/api/v2` | `internal/handler/userv2/`, `versions.go` |
+
+The layers only depend downward: handler → service → repo interface ← repo
+implementation (the only place that knows MongoDB). Nothing above
+`internal/repo/mongo` imports the database driver; `internal/archtest` fails
+the tests if it does. See `CODING_SEQUENCE.md` for the reasoning behind each
+layer.
+
+---
+
+## Step 1 — Model
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comment in `internal/models/base.go`.
+
+A model is a plain struct embedding `models.Base` (`ID models.ID`,
+`CreatedAt`, `UpdatedAt`; already in the repo). It has no database tags: how it
+is stored is the repository's business. `models.ID` is an opaque string — the
+store assigns it on `Create`, so a new model has an empty ID. Secrets are hidden
+at the model layer (`json:"-"` on the password hash).
+
+<!-- example:file path="internal/models/user.go" -->
+
+Test: pure struct behaviour, no mocks.
+
+<!-- example:file path="internal/models/user_test.go" -->
+
+---
+
+## Step 2 — Repository
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comments in `internal/repo/repositories.go`
+and the package comment of `internal/repo/mongo`.
+
+Two parts. The **interface** lives in `internal/repo` and mentions no driver;
+services depend on it. The **implementation** lives in `internal/repo/<driver>`.
+
+<!-- example:file path="internal/repo/user.go" -->
+
+The Mongo implementation has a private document struct (the only place with
+`bson` tags), explicit conversion to and from the model, ID parsing (a string
+that is not a valid ObjectID cannot exist in this store, so it is
+`errs.ErrRecordNotFound` — a 404, not a validation error), index definitions,
+and every driver error passed through `db.MapDBError` so callers only ever see
+`errs` sentinels (`ErrRecordNotFound`, `ErrDuplicateKey`, ...). No tracing or
+logging is added here (otelmongo already traces every query); metrics are, via
+`instrumentOperation` from `internal/repo/mongo/instrument.go`, which stays in
+the skeleton.
+
+<!-- example:file path="internal/repo/mongo/user.go" -->
+
+Test: the pure parts (ID parsing, conversion, BSON layout, index and find
+options) and the "malformed ID never reaches the driver" rule, using a
+repository with a nil collection — no database needed. The CRUD glue itself is
+checked against a real Mongo from `docker-compose.local.yml`, not mocked.
+
+<!-- example:file path="internal/repo/mongo/user_test.go" -->
+
+Wire it into the aggregate — the one function that names a concrete driver.
+
+<!-- example:file path="internal/repo/repositories.go" label="internal/repo/repositories.go (with User added)" -->
+
+### Where Postgres or SQLite would go
+
+**Sketch, not compiled.** A second implementation is a new package next to
+`mongo`, implementing the same interface, with its own row struct and its own ID
+rule; then you switch the constructor in `NewRepositories` and add the driver to
+the rules in `internal/archtest`. Nothing above the repo layer changes.
+
+<!-- example:sketch path="sketches/postgres_user.go.txt" -->
+
+---
+
+## Step 3 — Validation input
+
+*Plugs in at:* nothing to edit; `internal/validation/validation.go` is generic.
+
+The service validates its own input with the same `validate` tags the API uses.
+The `json` tags make failures come back keyed by the same field names the
+client sends (`email`, `password`).
+
+<!-- example:file path="internal/validation/user.go" -->
+
+<!-- example:file path="internal/validation/user_test.go" -->
+
+The validator itself (`internal/validation/validation.go`) is part of the
+skeleton: it keys errors by JSON field path (`address.city`, `lines[1].sku`) and
+words `min`/`max` by kind ("characters" for strings, "items" for slices, a bare
+number for numerics).
+
+---
+
+## Step 4 — Service
+
+*Plugs in at:* nothing to edit yet; wiring is step 6.
+
+The service owns the business rules, depends on the repository **interface** and
+a narrow `Enqueuer` interface (so it is testable without a database or Redis),
+and wraps every public method in a trace span. Logging policy: mutations log
+success and failure; reads log errors only; a failed login is a warning, not an
+error.
+
+What is worth noticing:
+
+- **Errors.** Invalid input returns `errs.Validation(verrs)`: HTTP 400 with the
+  per-field `fields` map. A duplicate email becomes `errs.Conflict` (409). Not
+  found comes up from the repo as 404. Anything unexpected stays an
+  `*errs.AppError` or is wrapped as `INTERNAL` (500, cause logged, never sent).
+- **Password hashing.** bcrypt with the default cost; the input is capped at 72
+  bytes because bcrypt silently truncates beyond that. Unknown email and wrong
+  password return the identical error so emails cannot be enumerated.
+- **Welcome email.** After the user is saved, `enqueueWelcomeEmail` builds a task
+  and enqueues it **best effort**: if the queue hiccups, sign-up still succeeds
+  and the failure is logged. The job itself is step 5.
+
+<!-- example:file path="internal/services/user/user.go" -->
+
+Test: a fake repository and a fake enqueuer, so every rule runs in memory.
+
+<!-- example:file path="internal/services/user/user_test.go" -->
+
+A second test checks the span the service emits (it installs an in-memory trace
+exporter):
+
+<!-- example:file path="internal/services/user/tracing_test.go" -->
+
+---
+
+## Step 5 — The welcome-email job
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comment in `NewJobRouter`
+(`internal/services/registerasynctasks.go`).
+
+Background jobs use asynq over Redis. The `asyncprocessor` package knows nothing
+about any job; each domain owns its task type, payload, a **producer**
+(`New...Task`) and a **consumer factory** (`New...Handler`). The composition
+root registers consumers on a router before the worker starts. The email
+package keeps the sender (`client.go`, `smtp.go`, which stay in the skeleton: a
+disabled config gives a logging no-op sender so local development needs no SMTP)
+and the welcome pieces below.
+
+The typed send function and its HTML template (embedded, `html/template` so
+values are escaped):
+
+<!-- example:file path="internal/lib/email/emails.go" -->
+
+<!-- example:file path="internal/lib/email/templates.go" -->
+
+<!-- example:file path="internal/lib/email/templates/welcome.html" -->
+
+The task: type constant, payload, producer with retry/queue/timeout options, the
+consumer factory, and the `email.sent` / `email.failed` counters.
+
+<!-- example:file path="internal/lib/email/tasks.go" -->
+
+Tests: the producer is pure; the consumer is called with a fake `Sender`, so no
+Redis or SMTP is involved. The fake lived in the skeleton's
+`internal/lib/email/client_test.go` and was removed with the example; put it back
+in that file (or in any `_test.go` of the package):
+
+<!-- example:region path="internal/lib/email/client_test.go" name="fake-sender" label="internal/lib/email/client_test.go (the fake used by the tests below)" -->
+
+<!-- example:file path="internal/lib/email/emails_test.go" -->
+
+<!-- example:file path="internal/lib/email/templates_test.go" -->
+
+<!-- example:file path="internal/lib/email/tasks_test.go" -->
+
+Register the consumer. This is the single place "which job kinds exist" is
+decided:
+
+<!-- example:file path="internal/services/registerasynctasks.go" label="internal/services/registerasynctasks.go (with the welcome job registered)" -->
+
+---
+
+## Step 6 — Service wiring
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comments on `services.Services` and
+`NewServices`.
+
+Add a field per domain service and construct it from the repository aggregate.
+The `Enqueuer` is satisfied by `asyncprocessor.Get().Client`, passed in by
+`internal/services/server`.
+
+<!-- example:file path="internal/services/services.go" label="internal/services/services.go (with User added)" -->
+
+<!-- example:file path="internal/services/services_test.go" -->
+
+---
+
+## Step 7 — DTOs, handler, endpoints
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comments on `handler.Handlers` and
+`handler.New`.
+
+The handler package has three files, none of which touches gin or JSON.
+Decoding the body, validating it and rendering the response/error are done by the
+`internal/api` adapter.
+
+**DTOs** are the wire contract. Every field has an explicit camelCase `json`
+tag (it is the TypeScript property name *and* the key in validation errors);
+inputs carry `validate` tags that are enforced on the server and translated to
+zod checks by the generator; IDs are plain strings bounded with
+`required,max=64` (no database-specific tag); responses are separate types so a
+new model field or a password hash can never leak.
+
+<!-- example:file path="internal/handler/user/dto.go" -->
+
+**The handler** is a set of typed functions `func(context.Context, Req) (Res, error)`
+over a narrow service interface (a fake satisfies it in tests). IDs are passed
+through as `models.ID`; mapping a model to a response is done in exactly one place
+(`toUserRes`).
+
+<!-- example:file path="internal/handler/user/handler.go" -->
+
+**Endpoints** list the functions, in the order they appear in the generated
+client.
+
+- `api.Query` for reads (`getUser`, `listUsers`) — safe to repeat; the generated
+  hook is `useQuery`, cached and refetched by TanStack Query.
+- `api.Mutation` for writes (`createUser`, `updateUser`, `deleteUser`) — the hook
+  is `useMutation`, called imperatively, never cached.
+- Both are `POST` with a JSON body; the kind only changes the hook.
+
+<!-- example:file path="internal/handler/user/endpoints.go" -->
+
+**How errors reach the client.** A handler returns an `*errs.AppError`
+(`errs.NotFound("...")`, `errs.Conflict("...")`, or whatever the service
+returned). The adapter calls `c.Error(err)` and never writes a response itself;
+`middleware.ErrorHandler` renders it with the status from the error. Anything
+that is not an `AppError` becomes `500 INTERNAL` with the cause logged, not sent.
+Examples of what the client receives:
+
+```
+400  {"code":"BAD_REQUEST","message":"validation failed: email: must be a valid email address; password: must be at least 8 characters",
+      "fields":{"email":["must be a valid email address"],"password":["must be at least 8 characters"]}}
+404  {"code":"NOT_FOUND","message":"record not found"}          // also for a malformed id (with Mongo)
+409  {"code":"CONFLICT","message":"an account with this email already exists"}
+500  {"code":"INTERNAL","message":"an internal server error occurred"}
+```
+
+Test: mount the **real** `Endpoints(h)` over a fake service in a gin engine, so a
+test covers decoding, validation, the handler, error rendering and JSON encoding
+together — and also reflects over every DTO to prove each field has a camelCase
+`json` tag.
+
+<!-- example:file path="internal/handler/user/handler_test.go" -->
+
+Add the handler to the aggregate, built from the service:
+
+<!-- example:file path="internal/handler/handlers.go" label="internal/handler/handlers.go (with User added)" -->
+
+---
+
+## Step 8 — Register the feature in an API version
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comment on `Endpoints` in
+`internal/router/versions.go`.
+
+`APIVersions` is the single list both the router and the TypeScript generator
+read, so the served API and the generated client cannot drift. `api.Mount`
+validates the version at boot and **panics** on a malformed declaration (bad
+name, duplicate name, non-struct request type), which is better than serving a
+half-registered API.
+
+<!-- example:file path="internal/router/versions.go" label="internal/router/versions.go (with User added)" -->
+
+The router tests mount the real versions, so a bad declaration fails
+`go test ./internal/router` before it can fail a deploy.
+
+---
+
+## Step 9 — Generate the client and use it from a frontend
+
+```sh
+make gen                        # fetch client  -> gen/ts/v1/{schemas,client,hooks,index}.ts
+make gen-axios                  # axios client  -> same files; only client.ts differs
+```
+
+Commit `gen/ts` (CI's `make gen-check` fails if it is stale) or send it to your
+frontend however you decide — see `HOW_TO_USE_IT.md` §3. The generated code
+needs `zod@^4`, `@tanstack/react-query@^5` if you import `hooks.ts`, and `axios@^1`
+for the axios client.
+
+What was generated for this feature. The zod schemas mirror the Go DTOs and their
+`validate` tags (the server stays authoritative):
+
+<!-- example:excerpt path="gen/ts/v1/schemas.ts" from="export const CreateUserReqSchema" to="export type UserRes =" label="gen/ts/v1/schemas.ts (excerpt)" -->
+
+One typed function per endpoint (fetch client shown; the axios client has the same
+function signatures):
+
+<!-- example:excerpt path="gen/ts/v1/client.ts" from="createUser: (input" to="rpc/createUser" label="gen/ts/v1/client.ts (excerpt)" -->
+
+And a hook per endpoint, `useQuery` or `useMutation` according to step 7:
+
+<!-- example:excerpt path="gen/ts/v1/hooks.ts" from="useCreateUser:" to="client.createUser(input)" label="gen/ts/v1/hooks.ts (excerpt)" -->
+
+### Using the fetch client
+
+<!-- example:file path="web/fetch/src/api.ts" label="src/api.ts (fetch client)" -->
+
+### Using the axios client (`make gen-axios`)
+
+Pass your own axios instance so its interceptors (auth tokens, retries) apply, or
+just a `baseURL`. HTTP errors become an `ApiError` from the response body;
+"no response" (offline, DNS, CORS, timeout) becomes `ApiError` with `status` 0 and
+`code` `"NETWORK_ERROR"`.
+
+<!-- example:file path="web/axios/src/api.ts" label="src/api.ts (axios client)" -->
+
+### React: hooks and showing `fields` errors on a form
+
+`hooks.ts` is identical for both clients. A validation failure arrives as an
+`ApiError` whose `fields` maps each JSON field name to its messages, so a form can
+put every message next to the right input:
+
+<!-- example:file path="web/fetch/src/SignupForm.tsx" label="src/SignupForm.tsx" -->
+
+Both clients and this form were type-checked (strict, `exactOptionalPropertyTypes`,
+`noUnusedLocals`) against the output generated from the code in this page. The
+same `CreateUserReqSchema` can also pre-validate on the client
+(`CreateUserReqSchema.safeParse(values)`) before any request is made.
+
+---
+
+## Step 10 — A Clerk webhook that syncs users
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comment on the `/webhook` group in
+`internal/router/router.go`.
+
+**Compiled, but not wired in.** The code below is compiled and tested with the rest
+of the example; nothing registers it on the router. It is a webhook example — it
+does not add authentication.
+
+A webhook is not an RPC function and is not generated, because: the provider
+(Clerk, delivering through Svix) calls *you*; the signature is computed over the
+**raw request body**, so the adapter's decode-first path cannot be used; and the
+payload is Clerk's, not yours. So it is a plain `gin.HandlerFunc` in the reserved
+`/webhook` group. What it must do:
+
+1. **Read the raw body** with `c.GetRawData()` (an oversized body surfaces as a
+   `*http.MaxBytesError`, which `ErrorHandler` turns into 413).
+2. **Verify the Svix signature** before parsing: HMAC-SHA256 over
+   `"<svix-id>.<svix-timestamp>.<body>"` with the base64-decoded `whsec_...`
+   secret, compared in constant time against each `v1,<base64>` entry in the
+   `svix-signature` header (there can be several during secret rotation).
+3. **Reject replays**: refuse a `svix-timestamp` more than a few minutes from
+   your clock.
+4. **Be idempotent.** Svix delivers at least once, so the sync must be an upsert
+   keyed by the Clerk user ID (for this, add an `ExternalID` field to the model, a
+   unique index and a repository `UpsertByExternalID`). If you also need to
+   suppress duplicate side effects, remember `svix-id` for a while (for example a
+   Redis `SET NX` with a TTL).
+5. **Answer fast and with the right status**: 2xx when handled (and for event types
+   you ignore, so they are not retried forever), non-2xx when you want Svix to
+   retry. Do slow work by enqueuing a job as in step 5.
+
+<!-- example:file path="internal/webhook/clerk/handler.go" -->
+
+<!-- example:file path="internal/webhook/clerk/handler_test.go" -->
+
+Register it on the existing group in `router.New` — optionally raising the body
+limit for this route only, since the global limit applies to every route (Clerk
+`user.created` events are small, so you can omit the override):
+
+```go
+// internal/router/router.go — sketch
+webhooks := engine.Group("/webhook")
+webhooks.POST("/clerk", middleware.MaxReqResSizeOverride(1<<20), h.Clerk.Handle)
+```
+
+`h.Clerk` is a `*clerk.Handler` you add to `handler.Handlers` (construct it with
+the signing secret from config — add a section for it in
+`internal/utils/config`, e.g. `CLERK_WEBHOOK_SECRET` in `.env`).
+
+---
+
+## Step 11 — Add `/api/v2` for this feature
+
+*Plugs in at:* the `// ADD YOUR DOMAIN` comment on `Endpoints` in `versions.go`.
+
+Versions are independent: each is its own route group, middleware stack and
+generated folder (`gen/ts/v1`, `gen/ts/v2`). A frontend migrates by changing one
+import path, and both can coexist. v2 can reuse v1's handlers unchanged, wrap
+them, or diverge. Here v2 keeps every v1 function and replaces only `getUser`,
+whose response renames `name` to `displayName`. It delegates to the v1 handler and
+reshapes, and gets a new DTO name (type names must be unique within a version).
+
+<!-- example:file path="internal/handler/userv2/endpoints.go" -->
+
+Add the version next to v1 in `versions.go`:
+
+```go
+return []api.Version{
+	{Name: "v1", Prefix: "/api/v1/rpc", Endpoints: user.Endpoints(h.User)},
+	{Name: "v2", Prefix: "/api/v2/rpc", Endpoints: userv2.Endpoints(h.User)},
+}
+```
+
+Test: both versions validate, v2 has the new function first and the rest of v1
+unchanged, the generator writes a separate `v2` folder containing the new schema
+(and `v1` does not), and the new route is served.
+
+<!-- example:file path="internal/router/userv2_test.go" -->
+
+Then `make gen` writes `gen/ts/v2/` next to `gen/ts/v1/`. When v1 is retired,
+delete its entry (and its folder).
+
+---
+
+## Testing: the style per layer
+
+| Layer | Style | Needs |
+|---|---|---|
+| Model, validation | plain unit / table tests on the struct | nothing |
+| Repository (`internal/repo/mongo`) | test the pure logic (conversion, ID parsing, index specs, find options) and that malformed IDs never reach the driver (nil collection); verify the CRUD glue against a real Mongo, not a mock | nothing for unit tests; compose for the glue |
+| Service | in-memory fake of the repo **interface** plus a fake `Enqueuer`; assert error codes, `fields`, and that the repo/queue were or were not called | nothing |
+| Job (email) | producer is pure; call the consumer with a fake `Sender`; metrics asserted against one in-memory reader | nothing |
+| Handler | real `Endpoints(h)` over a fake service in a gin engine with `middleware.ErrorHandler`; assert status and body | nothing |
+| Router | mount the real `APIVersions`; assert routes and that bad declarations fail | nothing |
+| Architecture | `internal/archtest`: only `internal/db` and `internal/repo/mongo` may import the Mongo driver | `go` on PATH |
+| Generator | golden files for a fixture API (`go test ./internal/gen -update` after an intended change) | nothing |
+| Webhook | build a correctly signed request with the test secret, then tamper with body, id, timestamp | nothing |
+
+A few of the shapes, taken from the tests above:
+
+<!-- example:region path="internal/services/user/user_test.go" name="service-test" label="service test: fake repo + fake enqueuer" -->
+
+<!-- example:region path="internal/handler/user/handler_test.go" name="handler-test" label="handler test: real endpoints, fake service" -->
+
+<!-- example:region path="internal/repo/mongo/user_test.go" name="repo-test" label="repository test: no database" -->
+
+Run everything with `make test` (`go test ./internal/...`) and the full CI gate
+with `make check`.
