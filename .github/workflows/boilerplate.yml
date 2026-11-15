@@ -18,12 +18,20 @@ env:
   GOWORK: "off"
 
 jobs:
-  # make init on a scratch copy; Linux has GNU sed, macOS has BSD sed.
+  # make init on a scratch copy; Linux has GNU sed, macOS has BSD sed. The
+  # KEEP_EXAMPLES=1 variant (Linux only) keeps examples/ and runs make check on it
+  # under the new module path; the others assert examples/ is removed.
   init-smoke:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            keep_examples: ""
+          - os: macos-latest
+            keep_examples: ""
+          - os: ubuntu-latest
+            keep_examples: "1"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -37,3 +45,5 @@ jobs:
           version: v2.13.0
           install-only: true
       - run: make init-smoke
+        env:
+          KEEP_EXAMPLES: ${{ matrix.keep_examples }}

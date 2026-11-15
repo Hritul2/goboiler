@@ -1,0 +1,24 @@
+// internal/repo/postgres/user.go — sketch, not compiled
+package postgres
+
+type userRow struct { // db tags live HERE, never on models.User
+	ID        string    `db:"id"` // e.g. a UUID
+	Email     string    `db:"email"`
+	Name      string    `db:"name"`
+	Password  string    `db:"password_hash"`
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
+}
+
+type UserRepository struct{ pool *pgxpool.Pool }
+
+func (r *UserRepository) GetByID(ctx context.Context, id models.ID) (*models.User, error) {
+	if _, err := uuid.Parse(string(id)); err != nil {
+		return nil, errs.ErrRecordNotFound // malformed for this store => cannot exist
+	}
+	// SELECT ... WHERE id = $1; pgx.ErrNoRows => errs.ErrRecordNotFound
+	// (add that mapping next to db.MapDBError; unique_violation => errs.ErrDuplicateKey)
+}
+
+// internal/repo/repositories.go, in NewRepositories:
+//   users := postgres.NewUserRepository()

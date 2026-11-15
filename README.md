@@ -38,7 +38,7 @@ generated-client drift) and a TypeScript type-check of the generated clients
 | | |
 |---|---|
 | [docs/HOW_TO_USE_IT.md](docs/HOW_TO_USE_IT.md) | Start here: first steps, decisions and trade-offs, frontend delivery options |
-| [docs/EXAMPLE.md](docs/EXAMPLE.md) | One feature end to end, with code and tests at every step |
+| [docs/EXAMPLE.md](docs/EXAMPLE.md) | One feature end to end, with code and tests at every step; generated from the compiled [`examples/user`](examples/user) |
 | [docs/API_HANDLERS.md](docs/API_HANDLERS.md) | Adding backend functions, errors, the generated TypeScript client (fetch or axios) |
 | [docs/BOOT_SEQUENCE.md](docs/BOOT_SEQUENCE.md) | What happens at startup and shutdown; the build-time generator |
 | [docs/CODING_SEQUENCE.md](docs/CODING_SEQUENCE.md) | The layers, in the order to build them, and why |

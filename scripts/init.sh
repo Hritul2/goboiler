@@ -23,6 +23,12 @@
 # itself: .github/workflows/boilerplate.yml and scripts/init-smoke.sh (the CI
 # proof that this very script works).
 #
+# examples/ (the compiled User example; docs/EXAMPLE.md is generated from it) is
+# deleted too, unless KEEP_EXAMPLES=1. docs/EXAMPLE.md stays either way: the
+# skeleton's "ADD YOUR DOMAIN" comments point to it. Without examples/ it is a
+# snapshot, and its provenance line says so; with KEEP_EXAMPLES=1 init runs
+# `make example-docs` at the end, so it keeps being generated and checked.
+#
 # Then it runs `go mod tidy` and `make gen`.
 #
 # Safety:
@@ -132,6 +138,19 @@ fi
 # script, which a generated project no longer has any use for.
 rm -f .github/workflows/boilerplate.yml scripts/init-smoke.sh
 
+# The compiled example. KEEP_EXAMPLES=1 keeps it (and its make targets); by
+# default it goes, and docs/EXAMPLE.md becomes a snapshot of it.
+KEEP_EXAMPLES="${KEEP_EXAMPLES:-}"
+if [ "$KEEP_EXAMPLES" != "1" ]; then
+  rm -rf examples
+  if [ -f docs/EXAMPLE.md ]; then
+    sed_inplace '/<!-- example-provenance -->/{
+n
+s#.*#> Snapshot of the compiled example in goboiler (examples/ was removed by make init, so this page is no longer generated or checked in this project).#
+}' docs/EXAMPLE.md
+  fi
+fi
+
 echo "init: module  $OLD_MODULE -> $NEW_MODULE"
 echo "init: project $OLD_NAME -> $NAME  (database name: $DBNAME)"
 
@@ -195,6 +214,11 @@ go mod tidy || warn "go mod tidy failed (offline?); run it yourself"
 
 echo "init: make gen"
 make gen || warn "make gen failed; run it yourself once the project builds"
+
+if [ "$KEEP_EXAMPLES" = "1" ]; then
+  echo "init: make example-docs"
+  make example-docs || warn "make example-docs failed; run it yourself once the project builds"
+fi
 
 cat <<EOF
 
